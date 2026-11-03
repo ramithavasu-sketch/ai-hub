@@ -6,15 +6,21 @@ The internal home for AI projects across AnywhereWorks. Find a colleague, see th
 
 ## Two versions
 
-- **Live site**: https://ramithavasu-sketch.github.io/ai-hub/. Shared Supabase database, sign-in with an Anywhere.co Google account. Every push to `main` deploys automatically.
+- **Live**: a Google Apps Script web app, open only to Anywhere.co Google accounts. Data lives in a Google Sheet in the owner's Drive.
 - **Demo**: made-up sample data saved only in the viewer's browser. Used for the Claude artifact (`node scripts/build-artifact.mjs <out.html>`).
 
 ## Run it
 
 ```bash
-npm run dev        # demo, sample data
-npm run dev:live   # live database (needs .env.live)
+npm run dev                      # demo, sample data
+npm run build:gas                # build the live version into gas/
+npx @google/clasp@3 push --force # upload gas/ to Apps Script
+npx @google/clasp@3 update-deployment <deployment id>   # publish it at the same link
 ```
+
+The earlier Supabase version (`supabase/`, `.env.live`) is kept for reference only; the app no longer uses it.
+
+`clasp` needs a `.clasp.json` (not committed) pointing at the Apps Script project with `"rootDir": "gas"`.
 
 ## What's inside
 
@@ -33,17 +39,19 @@ npm run dev:live   # live database (needs .env.live)
 
 ## Live setup
 
-- **Database**: Supabase project `ai-hub` (Mumbai). `supabase/migrations/` holds the tables, the read rules (row-level security) and one function per action. Each function checks permissions, so nobody can write to a table directly. `supabase/tests/rules-check.sql` checks the rules and rolls everything back.
-- **Sign-in**: Google only, limited to Anywhere.co accounts (checked in the database when someone first signs in). New people start as **Viewers**; an Admin promotes them in the Admin Panel.
-- **Google sign-in setup**: IT creates a Google OAuth client (Web application) with the redirect URI `https://whotlxcnewyhthdemqpy.supabase.co/auth/v1/callback`. The client ID and secret then go into Supabase → Authentication → Sign In / Providers → Google.
+- **Hosting and sign-in**: Apps Script web app that runs as its owner and is open to "Anyone within anywhere.co" (`gas/appsscript.json`). Google signs people in, so there is no sign-in screen. Anyone outside Anywhere.co is turned away.
+- **Data**: on first use the script creates a Google Sheet, "AnywhereWorks AI Hub — data", with one tab per table. Cells are stored as plain text, and lists as JSON.
+- **Rules**: every action goes through `api()` in `gas/Code.js`. It works out who is asking, runs the same rules as the demo (`gas/rules.js`, built from `src/lib/server.ts`), saves, and sends back only the projects that person may see. A lock stops two saves from clashing.
+- **People**: whoever deployed the app is its first Admin. Everyone else joins as a **Viewer** on first visit and is asked for name, title and department. An Admin promotes people in the Admin Panel.
 - **Still to come**: file uploads (resources are links for now).
 
 ## Code map
 
 - `src/lib/types.ts`: data model (people, departments, projects, resources, updates, comments, activity)
 - `src/lib/server.ts`: the demo rules layer. Every call takes the signed-in person and checks permissions.
-- `src/lib/api.ts`: one set of actions for both versions (demo rules or live database functions)
-- `src/components/Gate.tsx`, `Welcome.tsx`: live sign-in screen and first-time profile step
+- `src/lib/api.ts`: one set of actions for both versions (demo rules, or calls to Apps Script)
+- `gas/Code.js`: the Apps Script server (Sheet storage, who is asking, rules). `gas/rules.js` and `gas/Index.html` are generated; don't edit them.
+- `src/components/Gate.tsx`, `Welcome.tsx`: live loading / no-access screens and first-time profile step
 - `src/lib/seed.ts`: sample data
 - `src/components/Shell.tsx`: sidebar, search, notifications, profile menu
 - `src/components/hub.tsx`: shared cards, badges, Journey

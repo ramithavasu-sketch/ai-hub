@@ -1,20 +1,11 @@
 import { useEffect, useState, type AnchorHTMLAttributes, type MouseEvent } from 'react';
-import { LIVE } from './api';
 
-// Tiny router. On the live site routes live in the address bar (#/projects/…) so links
-// can be bookmarked and shared. Inside a Claude artifact the address bar never follows
-// the page, so the demo keeps routes in memory.
+// Tiny in-memory router. Both a Claude artifact and an Apps Script web app run the
+// page inside a frame whose address bar never follows it, so routes stay in memory.
 
-const fromHash = () => {
-  const h = decodeURI(location.hash.slice(1));
-  return h.startsWith('/') ? h : '/';
-};
-
-let current = LIVE ? fromHash() : '/';
+let current = '/';
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((l) => l());
-
-if (LIVE) window.addEventListener('hashchange', () => { current = fromHash(); notify(); });
 
 function read() {
   const [path, qs = ''] = current.split('?');
@@ -32,7 +23,6 @@ export function useRoute() {
 }
 
 export const navigate = (to: string) => {
-  if (LIVE) { location.hash = to; return; } // hashchange updates the page
   current = to;
   notify();
 };

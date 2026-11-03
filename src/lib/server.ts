@@ -92,14 +92,8 @@ export const visibleResources = (db: Db, actor: Person) => {
 
 // ---------- validation ----------
 
-export function validUrl(url: string) {
-  try {
-    const u = new URL(url.trim());
-    return u.protocol === 'https:' || u.protocol === 'http:';
-  } catch {
-    return false;
-  }
-}
+// A regex rather than new URL(): Google Apps Script has no URL class.
+export const validUrl = (url: string) => /^https?:\/\/[^\s/?#]+\S*$/i.test(url.trim());
 
 function clean(s: unknown, max = 4000) {
   return String(s ?? '').trim().slice(0, max);
@@ -337,9 +331,13 @@ export function addDepartment(db: Db, actor: Person, name: string, description: 
   save(db);
 }
 
-export function updateProfile(db: Db, actor: Person, input: { title?: string; departmentId?: string; bio?: string; interests?: string[] }) {
+export function updateProfile(db: Db, actor: Person, input: { name?: string; title?: string; departmentId?: string; bio?: string; interests?: string[] }) {
   const me = db.people.find((x) => x.id === actor.id);
   if (!me) return;
+  if (input.name !== undefined) {
+    if (!clean(input.name, 80)) throw new Invalid('Add your name.');
+    me.name = clean(input.name, 80);
+  }
   if (input.departmentId !== undefined) {
     if (!db.departments.some((d) => d.id === input.departmentId)) throw new Invalid('Choose your department.');
     me.departmentId = input.departmentId;

@@ -2,7 +2,7 @@ import type { Db, Project, Resource, Update, Comment, Activity, Person, Departme
 
 // All names and data below are made up for the demo.
 
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 const DAY = 86_400_000;
 const ago = (days: number, hour = 10) => {
@@ -13,6 +13,7 @@ const ago = (days: number, hour = 10) => {
 
 const departments: Department[] = [
   { id: 'd-cs', name: 'Customer Success', description: 'Support, call quality and customer experience', hue: 168 },
+  { id: 'd-qa', name: 'Quality Assurance', description: 'Call audits, calibration and quality standards', hue: 140 },
   { id: 'd-eng', name: 'Product & Engineering', description: 'Platform, apps and internal tooling', hue: 222 },
   { id: 'd-design', name: 'Design', description: 'Product design, brand and research', hue: 262 },
   { id: 'd-mkt', name: 'Marketing', description: 'Content, campaigns and growth', hue: 28 },

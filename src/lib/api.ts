@@ -1,21 +1,15 @@
 /**
  * One set of actions, two back ends. Demo mode runs the rules in src/lib/server.ts
- * against this browser's sample data; live mode calls the matching database functions
- * in supabase/migrations, which enforce the same rules for everyone.
+ * against this browser's sample data; live mode (the Google Apps Script web app) sends
+ * each action to gas/Code.js, which runs the same rules on the server against the
+ * shared Google Sheet.
  */
-import { createClient } from '@supabase/supabase-js';
 import * as server from './server';
-import type { AccessRole, Db, Person, Project, Resource, StageKey, Status } from './types';
+import type { AccessRole, Db, Person, StageKey, Status } from './types';
 
-export const LIVE = !!import.meta.env.VITE_SUPABASE_URL;
+export const LIVE = import.meta.env.VITE_BACKEND === 'gas';
 
-export const supabase = LIVE
-  ? createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY, {
-      auth: { flowType: 'pkce', detectSessionInUrl: true, persistSession: true },
-    })
-  : null;
-
-export interface ProfileInput { title?: string; departmentId?: string; bio?: string; interests?: string[] }
+export interface ProfileInput { name?: string; title?: string; departmentId?: string; bio?: string; interests?: string[] }
 
 export interface Api {
   load(): Promise<Db>;
@@ -64,76 +58,68 @@ export function demoApi(meId: () => string): Api {
   };
 }
 
-// ---------- live: the shared database ----------
+// ---------- live: Google Apps Script ----------
 
-type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+interface Reply { result: unknown; me: Person; data: Db | null; appUrl: string }
 
-const toPerson = (r: Row): Person => ({
-  id: r.id, name: r.name, email: r.email, title: r.title, departmentId: r.department_id ?? '',
-  bio: r.bio, interests: r.interests, accessRole: r.access_role, active: r.active,
-});
+declare const google: {
+  script: { run: { withSuccessHandler(f: (r: Reply) => void): { withFailureHandler(f: (e: Error) => void): { api(name: string, args: unknown[]): void } } } };
+};
 
-const toProject = (r: Row): Project => ({
-  id: r.id, name: r.name, tagline: r.tagline, description: r.description, problem: r.problem,
-  solution: r.solution, benefits: r.benefits, ownerId: r.owner_id, contributorIds: r.contributor_ids,
-  departmentId: r.department_id, status: r.status, visibility: r.visibility, allowedIds: r.allowed_ids,
-  technologies: r.technologies, tags: r.tags, featured: r.featured, proposedAt: r.proposed_at,
-  createdAt: r.created_at, updatedAt: r.updated_at, journey: r.journey, notes: r.notes,
-});
-
-const toResource = (r: Row): Resource => ({
-  id: r.id, projectId: r.project_id, title: r.title, type: r.type, description: r.description,
-  url: r.url, addedBy: r.added_by, addedAt: r.added_at,
-});
-
-async function rpc<T = void>(fn: string, args: Record<string, unknown>): Promise<T> {
-  const { data, error } = await supabase!.rpc(fn, args);
-  if (error) throw new Error(error.message || 'Something went wrong. Please try again.');
-  return data as T;
+function call(name: string, args: unknown[] = []): Promise<Reply> {
+  return new Promise((resolve, reject) =>
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler((e) => reject(new Error(String(e?.message || 'Something went wrong. Please try again.').replace(/^(Exception|Error):\s*/, ''))))
+      .api(name, args),
+  );
 }
 
-async function rows(table: string, order: string, limit = 5000): Promise<Row[]> {
-  const { data, error } = await supabase!.from(table).select('*').order(order, { ascending: false }).limit(limit);
-  if (error) throw new Error(error.message);
-  return data ?? [];
+// Every reply carries fresh data, so the reload that follows an action can reuse it
+// instead of making a second trip to the server.
+let latest: Reply | null = null;
+const send = async <T>(name: string, ...args: unknown[]) => {
+  latest = await call(name, args);
+  return latest.result as T;
+};
+
+/** Who is signed in (joining on first visit), plus everything they may see. */
+export async function boot(): Promise<Reply> {
+  latest = await call('load');
+  return latest;
+}
+
+/** Google account links for the profile menu. Both come back to the AI Hub afterwards. */
+export function accountLinks(appUrl: string) {
+  // Without the app's address, Google's own pages still work; they just don't return here.
+  if (!appUrl) return { switchAccount: 'https://accounts.google.com/AccountChooser', signOut: 'https://accounts.google.com/Logout' };
+  const back = encodeURIComponent(appUrl);
+  return {
+    switchAccount: `https://accounts.google.com/AccountChooser?continue=${back}`,
+    signOut: `https://www.google.com/accounts/Logout?continue=https://appengine.google.com/_ah/logout?continue=${back}`,
+  };
 }
 
 export const liveApi: Api = {
   async load() {
-    const [departments, people, projects, resources, updates, comments, activity] = await Promise.all([
-      rows('departments', 'name'), rows('people', 'name'), rows('projects', 'updated_at'), rows('resources', 'added_at'),
-      rows('updates', 'date'), rows('comments', 'date'), rows('activity', 'date', 2000),
-    ]);
-    return {
-      version: 0,
-      departments: departments.map((r) => ({ id: r.id, name: r.name, description: r.description, hue: r.hue })).sort((a, b) => a.name.localeCompare(b.name)),
-      people: people.map(toPerson).sort((a, b) => a.name.localeCompare(b.name)),
-      projects: projects.map(toProject),
-      resources: resources.map(toResource),
-      updates: updates.map((r) => ({ id: r.id, projectId: r.project_id, authorId: r.author_id, date: r.date, title: r.title, body: r.body })),
-      comments: comments.map((r) => ({ id: r.id, projectId: r.project_id, authorId: r.author_id, date: r.date, body: r.body })),
-      activity: activity.map((r) => ({ id: r.id, projectId: r.project_id, actorId: r.actor_id, date: r.date, action: r.action })),
-    };
+    const r = latest ?? (await call('load'));
+    latest = null;
+    if (!r.data) throw new Error('Your access to the AI Hub is turned off.');
+    return r.data;
   },
-  saveProject: (input, id) => rpc<string>('save_project', { p_input: input, p_id: id ?? null }),
-  setJourneyNote: (pid, stage, note) => rpc('set_journey_note', { p_id: pid, p_stage: stage, p_note: note }),
-  setStatus: (pid, s) => rpc('set_status', { p_id: pid, p_status: s }),
-  publish: (pid) => rpc('publish_project', { p_id: pid }),
-  deleteProject: (pid) => rpc('delete_project', { p_id: pid }),
-  toggleFeatured: (pid) => rpc('toggle_featured', { p_id: pid }),
-  saveResource: (pid, input, id) => rpc('save_resource', { p_project: pid, p_input: input, p_id: id ?? null }),
-  deleteResource: (pid, id) => rpc('delete_resource', { p_project: pid, p_id: id }),
-  addUpdate: (pid, t, b) => rpc('add_update', { p_project: pid, p_title: t, p_body: b }),
-  addComment: (pid, b) => rpc('add_comment', { p_project: pid, p_body: b }),
-  deleteComment: (pid, id) => rpc('delete_comment', { p_project: pid, p_id: id }),
-  setAccess: (id, role) => rpc('set_access', { p_person: id, p_role: role }),
-  setActive: (id, a) => rpc('set_active', { p_person: id, p_active: a }),
-  addDepartment: (n, d) => rpc('add_department', { p_name: n, p_description: d }),
-  updateProfile: (input) => rpc('update_profile', { p_input: input }),
+  saveProject: (input, id) => send<string>('saveProject', input, id ?? null),
+  setJourneyNote: (pid, stage, note) => send('setJourneyNote', pid, stage, note),
+  setStatus: (pid, s) => send('setStatus', pid, s),
+  publish: (pid) => send('publish', pid),
+  deleteProject: (pid) => send('deleteProject', pid),
+  toggleFeatured: (pid) => send('toggleFeatured', pid),
+  saveResource: (pid, input, id) => send('saveResource', pid, input, id ?? null),
+  deleteResource: (pid, id) => send('deleteResource', pid, id),
+  addUpdate: (pid, t, b) => send('addUpdate', pid, t, b),
+  addComment: (pid, b) => send('addComment', pid, b),
+  deleteComment: (pid, id) => send('deleteComment', pid, id),
+  setAccess: (id, role) => send('setAccess', id, role),
+  setActive: (id, a) => send('setActive', id, a),
+  addDepartment: (n, d) => send('addDepartment', n, d),
+  updateProfile: (input) => send('updateProfile', input),
 };
-
-/** The signed-in person's own profile, even if deactivated (so the app can say why). */
-export async function whoami(): Promise<Person | null> {
-  const r = await rpc<Row | null>('whoami', {});
-  return r ? toPerson(r) : null;
-}

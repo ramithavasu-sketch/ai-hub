@@ -42,10 +42,10 @@ export function Wordmark({ className }: { className?: string }) {
 }
 
 function Sidebar({ path, onNavigate }: { path: string; onNavigate?: () => void }) {
-  const { me } = useHub();
+  const { me, account } = useHub();
   const items = [...NAV, ...(isAdmin(me) ? [{ to: '/admin', label: 'Admin Panel', icon: ShieldCheck }] : [])];
   return (
-    <div className="bg-sidebar flex h-full flex-col text-white/80">
+    <div className="bg-sidebar flex h-full flex-col overflow-y-auto text-white/80">
       <div className="px-5 pt-6 pb-8"><Wordmark /></div>
       <nav className="flex flex-col gap-0.5 px-3" onClick={onNavigate}>
         {items.map(({ to, label, icon: I }) => {
@@ -69,6 +69,21 @@ function Sidebar({ path, onNavigate }: { path: string; onNavigate?: () => void }
           <div className="display text-lg leading-snug text-white">Discover. Collaborate. <span className="text-gold italic">Innovate.</span></div>
           <p className="mt-1.5 text-xs leading-relaxed text-white/50">Got an idea, even a rough one? Share it — early ideas are welcome here.</p>
         </div>
+        {account && (
+          <div className="mt-3 space-y-2 px-1">
+            <div className="truncate text-xs text-white/50" title={me.email}>Signed in as {me.email}</div>
+            <div className="flex gap-2">
+              <a href={account.signOut} target="_top" title="Also signs you out of Gmail and other Google apps in this browser"
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-white/15 px-2 py-2 text-xs text-white/80 hover:bg-white/10 hover:text-white">
+                <LogOut className="size-3.5" />Sign out
+              </a>
+              <a href={account.switchAccount} target="_top"
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-white/15 px-2 py-2 text-xs text-white/80 hover:bg-white/10 hover:text-white">
+                <Users className="size-3.5" />Switch
+              </a>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -210,7 +225,7 @@ function useTheme(): [Theme, (t: Theme) => void] {
 }
 
 function ProfileMenu() {
-  const { db, me, live, signIn, signOut, resetData } = useHub();
+  const { db, me, live, signIn, account, resetData } = useHub();
   const [theme, setTheme] = useTheme();
   const roleLabel = { admin: 'Admin', contributor: 'Contributor', viewer: 'Viewer' };
   return (
@@ -236,11 +251,22 @@ function ProfileMenu() {
             </button>
           ))}
         </div>
-        <DropdownMenuSeparator />
-        {live ? (
-          <DropdownMenuItem onSelect={signOut}><LogOut className="size-4" />Sign out</DropdownMenuItem>
-        ) : (
+        {/* Live: you are signed in through Google, so these hand over to Google's own pages. */}
+        {live && account && (
           <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild><a href={account.switchAccount} target="_top"><Users className="size-4" />Switch Google account</a></DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <a href={account.signOut} target="_top" className="items-start!">
+              <LogOut className="mt-0.5 size-4" />
+              <span>Sign out<span className="text-muted-foreground block text-xs">Also signs you out of Gmail and other Google apps in this browser</span></span>
+            </a>
+          </DropdownMenuItem>
+          </>
+        )}
+        {!live && (
+          <>
+          <DropdownMenuSeparator />
           <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">Development sign-in · switch person</DropdownMenuLabel>
           <div className="max-h-56 overflow-y-auto">
             <DropdownMenuRadioGroup value={me.id} onValueChange={signIn}>

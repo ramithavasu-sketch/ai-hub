@@ -5,13 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:live": "vite --mode live",
     "build": "vite build",
-    "build:live": "vite build --mode live",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:gas": "node scripts/build-gas.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.118.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.64.0",

@@ -5,6 +5,7 @@ import {
   ArrowUpRight, BookOpen, Building2, ChartLine, CirclePlay, CodeXml, FileText, FolderOpen, GitBranch, Globe,
   Handshake, Headphones, Image, Link2, Lock, Megaphone, MousePointerClick, NotebookPen, PenTool, Presentation,
   Sparkles, Star, Users, FilePen, Check, Copy,
+  BadgeCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link } from '@/lib/router';
@@ -93,7 +94,7 @@ export function VisibilityBadge({ project }: { project: Project }) {
 
 const DEPT_ICONS: Record<string, typeof Sparkles> = {
   'd-cs': Headphones, 'd-eng': CodeXml, 'd-design': PenTool, 'd-mkt': Megaphone,
-  'd-sales': Handshake, 'd-people': Users, 'd-ops': ChartLine,
+  'd-sales': Handshake, 'd-people': Users, 'd-ops': ChartLine, 'd-qa': BadgeCheck,
 };
 
 export function DeptIcon({ id, className }: { id: string; className?: string }) {
