@@ -3,7 +3,7 @@ import { CircleCheck, FileText, FileUp, Loader2, Paperclip, Undo2, X } from 'luc
 import { useHub } from '@/lib/store';
 import * as server from '@/lib/server';
 import { RESOURCE_TYPES } from '@/lib/meta';
-import { MAX_UPLOAD_MB } from '@/lib/api';
+import { MAX_READ_MB, MAX_UPLOAD_MB } from '@/lib/api';
 import type { ResourceType } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -80,7 +80,7 @@ export function ImportDocument({ onFill, onUndo }: {
             <>
               <p className="font-medium">Have a project document?</p>
               <p className="text-muted-foreground">
-                Upload it and we’ll fill in the form for you to check. {live ? `Word, PDF or text, up to ${MAX_UPLOAD_MB} MB.` : 'The demo reads .txt files.'} Works best with headings like Project name, Problem, Proposed solution and Expected outcome.
+                Upload it and we’ll fill in the form for you to check. {live ? `Word, PDF or text, up to ${MAX_READ_MB} MB.` : 'The demo reads .txt files.'} Works best with headings like Project name, Problem, Proposed solution and Expected outcome.
               </p>
             </>
           )}

@@ -112,6 +112,7 @@ export default function ProjectForm({ id }: { id?: string }) {
 
   const [files, setFiles] = useState<Attachment[]>([]);
   const [saving, setSaving] = useState(false);
+  const [uploadNote, setUploadNote] = useState('');
   // Remember what a save already did, so trying again after an error doesn't add things twice.
   const savedId = useRef(id);
   const linksAdded = useRef(false);
@@ -159,7 +160,13 @@ export default function ProjectForm({ id }: { id?: string }) {
     setSaving(true);
     const ok = await act(async (api) => {
       // Upload first, so nothing is saved if a file can't be uploaded.
-      for (const a of files) if (!a.url) a.url = (await api.uploadFile(a.file)).url;
+      const pending = files.filter((a) => !a.url);
+      for (const [i, a] of pending.entries()) {
+        const note = (pct: number) => setUploadNote(`Uploading ${pending.length > 1 ? `${i + 1} of ${pending.length} · ` : ''}${pct}%`);
+        note(0);
+        a.url = (await api.uploadFile(a.file, (p) => note(Math.round(p * 100)))).url;
+      }
+      setUploadNote('');
       saved = await api.saveProject({
         ...f,
         technologies: splitList(f.technologies),
@@ -179,6 +186,7 @@ export default function ProjectForm({ id }: { id?: string }) {
       }
     }, asDraft ? 'Draft saved — you can finish it any time' : id ? 'Project updated' : 'Project published 🎉');
     setSaving(false);
+    setUploadNote('');
     setFiles((xs) => [...xs]); // show which files made it if something failed part-way
     if (ok) navigate(`/projects/${saved}`);
   };
@@ -277,7 +285,7 @@ export default function ProjectForm({ id }: { id?: string }) {
             <Button type="button" variant="outline" size="lg" onClick={() => submit(true)} disabled={!f.name.trim() || saving}><FilePen />Save as draft</Button>
           )}
           <Button type="submit" size="lg" disabled={missing.length > 0 || saving} className="bg-gold hover:bg-gold text-[#111] hover:brightness-95">
-            {saving && files.some((a) => !a.url) ? <><Loader2 className="animate-spin" />Uploading files…</> : <><Megaphone />{existing && existing.visibility !== 'draft' ? 'Save changes' : 'Publish project'}</>}
+            {saving && uploadNote ? <><Loader2 className="animate-spin" />{uploadNote}</> : <><Megaphone />{existing && existing.visibility !== 'draft' ? 'Save changes' : 'Publish project'}</>}
           </Button>
         </div>
       </form>

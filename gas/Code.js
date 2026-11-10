@@ -11,7 +11,8 @@
 
 var DOMAIN = 'anywhere.co';
 var ACTIVITY_KEEP = 3000; // newest activity rows kept in the sheet
-var MAX_UPLOAD_MB = 20;
+var MAX_UPLOAD_MB = 50; // attachments, sent in pieces
+var MAX_READ_MB = 20;   // documents read to fill the form
 
 // Column layout per tab. s = text, j = JSON (lists and objects), b = yes/no, n = number.
 var SCHEMA = {
@@ -103,14 +104,57 @@ function appUrl_() {
 function authorize() {
   DriveApp.getRootFolder();
   DocumentApp.getActiveDocument();
+  UrlFetchApp.getRequest('https://www.googleapis.com/');
   SpreadsheetApp.getActiveSpreadsheet();
   Logger.log('All set. The AI Hub can now save files and read documents.');
 }
 
-/** Save an uploaded file in the AI Hub's Drive folder. Anyone at Anywhere.co with the link can open it. */
-function uploadFile(file) {
+/**
+ * Uploads go straight into the AI Hub's Drive folder in pieces (a Drive "resumable upload"),
+ * because Apps Script can't receive a large file in one call. startUpload returns the
+ * upload address; the page then sends each piece to uploadChunk.
+ */
+function startUpload(name, mimeType, size) {
   uploader_();
-  var saved = filesFolder_().createFile(blobFrom_(file));
+  size = Number(size) || 0;
+  if (size <= 0) throw new Error('That file is empty.');
+  if (size > MAX_UPLOAD_MB * 1024 * 1024) throw new Error('Files can be up to ' + MAX_UPLOAD_MB + ' MB.');
+  var res = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
+    method: 'post',
+    contentType: 'application/json; charset=UTF-8',
+    headers: {
+      Authorization: 'Bearer ' + ScriptApp.getOAuthToken(),
+      'X-Upload-Content-Type': mimeType || 'application/octet-stream',
+      'X-Upload-Content-Length': String(size),
+    },
+    payload: JSON.stringify({ name: String(name || 'file').slice(0, 200), parents: [filesFolder_().getId()] }),
+    muteHttpExceptions: true,
+  });
+  var headers = res.getHeaders();
+  var session = headers.Location || headers.location;
+  if (res.getResponseCode() !== 200 || !session) throw new Error('We couldn’t start the upload. Please try again.');
+  return session;
+}
+
+/** Send one piece. Returns null while more pieces are expected, then the saved file. */
+function uploadChunk(session, start, size, data) {
+  uploader_();
+  if (!/^https:\/\/www\.googleapis\.com\/upload\/drive\/v3\/files\?/.test(String(session))) throw new Error('The upload was interrupted. Please try again.');
+  var bytes = Utilities.base64Decode(data);
+  var res = UrlFetchApp.fetch(session, {
+    method: 'put',
+    contentType: 'application/octet-stream',
+    headers: {
+      Authorization: 'Bearer ' + ScriptApp.getOAuthToken(),
+      'Content-Range': 'bytes ' + start + '-' + (start + bytes.length - 1) + '/' + size,
+    },
+    payload: bytes,
+    muteHttpExceptions: true,
+  });
+  var code = res.getResponseCode();
+  if (code === 308) return null; // Drive is waiting for the next piece
+  if (code !== 200 && code !== 201) throw new Error('The upload was interrupted. Please try again.');
+  var saved = DriveApp.getFileById(JSON.parse(res.getContentText()).id);
   try {
     saved.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.VIEW);
   } catch (e) {
@@ -150,7 +194,7 @@ function uploader_() {
 
 function blobFrom_(file) {
   if (!file || !file.data) throw new Error('Choose a file to upload.');
-  if (file.data.length * 0.75 > MAX_UPLOAD_MB * 1024 * 1024) throw new Error('Files can be up to ' + MAX_UPLOAD_MB + ' MB.');
+  if (file.data.length * 0.75 > MAX_READ_MB * 1024 * 1024) throw new Error('Documents to read can be up to ' + MAX_READ_MB + ' MB.');
   var name = String(file.name || 'file').slice(0, 200);
   return Utilities.newBlob(Utilities.base64Decode(file.data), file.mimeType || 'application/octet-stream', name);
 }

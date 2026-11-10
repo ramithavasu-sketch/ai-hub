@@ -305,6 +305,7 @@ function ResourceDialog({ projectId, value, onClose }: { projectId: string; valu
   const [mode, setMode] = useState<'link' | 'file'>('link');
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [pct, setPct] = useState(0);
   const [lastKey, setLastKey] = useState<string | null>(null);
   const key = value === 'new' ? 'new' : editing?.id ?? null;
   if (key !== lastKey) {
@@ -324,7 +325,8 @@ function ResourceDialog({ projectId, value, onClose }: { projectId: string; valu
     const ok = await act(async (api) => {
       if (mode === 'file') {
         if (!file) throw new server.Invalid('Choose a file to upload.');
-        const up = await api.uploadFile(file);
+        setPct(0);
+        const up = await api.uploadFile(file, (p) => setPct(Math.round(p * 100)));
         await api.saveResource(projectId, { ...form, url: up.url });
       } else await api.saveResource(projectId, form, editing?.id);
     }, editing ? 'Resource updated' : mode === 'file' ? 'File uploaded' : 'Resource added');
@@ -382,7 +384,7 @@ function ResourceDialog({ projectId, value, onClose }: { projectId: string; valu
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
             <Button type="submit" disabled={saving}>
-              {saving ? <><Loader2 className="animate-spin" />{mode === 'file' ? 'Uploading…' : 'Saving…'}</> : editing ? 'Save changes' : mode === 'file' ? 'Upload file' : `Add ${resourceLabel(form.type).toLowerCase()}`}
+              {saving ? <><Loader2 className="animate-spin" />{mode === 'file' ? `Uploading… ${pct}%` : 'Saving…'}</> : editing ? 'Save changes' : mode === 'file' ? 'Upload file' : `Add ${resourceLabel(form.type).toLowerCase()}`}
             </Button>
           </DialogFooter>
         </form>

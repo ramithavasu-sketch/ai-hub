@@ -8,7 +8,9 @@ import * as server from './server';
 import type { AccessRole, Db, Person, StageKey, Status } from './types';
 
 export const LIVE = import.meta.env.VITE_BACKEND === 'gas';
-export const MAX_UPLOAD_MB = 20;
+export const MAX_UPLOAD_MB = 50; // attachments
+export const MAX_READ_MB = 20; // documents read to fill the form
+const CHUNK = 4 * 1024 * 1024; // upload piece size; Drive needs a multiple of 256 KB
 
 export interface UploadedFile { name: string; url: string; mimeType: string }
 export type DocReading = ReturnType<typeof server.fieldsFromText>;
@@ -33,13 +35,13 @@ export interface Api {
   addDepartment(name: string, description: string): Promise<void>;
   updateProfile(input: ProfileInput): Promise<void>;
   /** Save a file and return a link to it (live: the AI Hub's Google Drive folder). */
-  uploadFile(file: File): Promise<UploadedFile>;
+  uploadFile(file: File, onProgress?: (fraction: number) => void): Promise<UploadedFile>;
   /** Read a project document and return the form fields it fills. */
   readDocument(file: File): Promise<DocReading>;
 }
 
-function checkSize(file: File) {
-  if (file.size > MAX_UPLOAD_MB * 1024 * 1024) throw new server.Invalid(`${file.name} is too big. Files can be up to ${MAX_UPLOAD_MB} MB.`);
+function checkSize(file: File, maxMb: number) {
+  if (file.size > maxMb * 1024 * 1024) throw new server.Invalid(`${file.name} is too big. Files can be up to ${maxMb} MB.`);
 }
 
 // ---------- demo: sample data in this browser ----------
@@ -70,7 +72,7 @@ export function demoApi(meId: () => string): Api {
     // The demo has no Google Drive, so only plain-text documents can be read here.
     uploadFile: async () => { throw new server.Invalid('Uploading files works on the live AI Hub. In this demo, add a link instead.'); },
     readDocument: async (file) => {
-      checkSize(file);
+      checkSize(file, MAX_READ_MB);
       if (!/^text\//.test(file.type) && !/\.(txt|md)$/i.test(file.name))
         throw new server.Invalid('This demo can only read .txt files. Word and PDF files work on the live AI Hub.');
       return server.fieldsFromText(await file.text());
@@ -82,7 +84,12 @@ export function demoApi(meId: () => string): Api {
 
 interface Reply { result: unknown; me: Person; data: Db | null; appUrl: string }
 
-type ServerFns = { api(name: string, args: unknown[]): void; uploadFile(file: FileArg): void; readDocument(file: FileArg): void };
+type ServerFns = {
+  api(name: string, args: unknown[]): void;
+  startUpload(name: string, mimeType: string, size: number): void;
+  uploadChunk(session: string, start: number, size: number, data: string): void;
+  readDocument(file: FileArg): void;
+};
 interface FileArg { name: string; mimeType: string; data: string }
 
 declare const google: {
@@ -101,15 +108,29 @@ function runServer<T>(pick: (fns: ServerFns) => void): Promise<T> {
 const call = (name: string, args: unknown[] = []) => runServer<Reply>((fns) => fns.api(name, args));
 
 /** Files travel to Apps Script as base64 text. */
-async function fileArg(file: File): Promise<FileArg> {
-  checkSize(file);
+async function base64(blob: Blob, name: string): Promise<string> {
   const url = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error(`We couldn’t open ${file.name}.`));
-    reader.readAsDataURL(file);
+    reader.onerror = () => reject(new Error(`We couldn’t open ${name}.`));
+    reader.readAsDataURL(blob);
   });
-  return { name: file.name, mimeType: file.type || 'application/octet-stream', data: url.slice(url.indexOf(',') + 1) };
+  return url.slice(url.indexOf(',') + 1);
+}
+
+/** Upload in pieces straight into the AI Hub's Drive folder (see startUpload in Code.js). */
+async function uploadInPieces(file: File, onProgress?: (fraction: number) => void): Promise<UploadedFile> {
+  checkSize(file, MAX_UPLOAD_MB);
+  if (!file.size) throw new server.Invalid(`${file.name} is empty.`);
+  const type = file.type || 'application/octet-stream';
+  const session = await runServer<string>((fns) => fns.startUpload(file.name, type, file.size));
+  for (let start = 0; start < file.size; start += CHUNK) {
+    const data = await base64(file.slice(start, start + CHUNK), file.name);
+    const done = await runServer<UploadedFile | null>((fns) => fns.uploadChunk(session, start, file.size, data));
+    onProgress?.(Math.min(1, (start + CHUNK) / file.size));
+    if (done) return done;
+  }
+  throw new Error('The upload didn’t finish. Please try again.');
 }
 
 // Every reply carries fresh data, so the reload that follows an action can reuse it
@@ -159,6 +180,10 @@ export const liveApi: Api = {
   setActive: (id, a) => send('setActive', id, a),
   addDepartment: (n, d) => send('addDepartment', n, d),
   updateProfile: (input) => send('updateProfile', input),
-  uploadFile: async (file) => { const f = await fileArg(file); return runServer<UploadedFile>((fns) => fns.uploadFile(f)); },
-  readDocument: async (file) => { const f = await fileArg(file); return runServer<DocReading>((fns) => fns.readDocument(f)); },
+  uploadFile: uploadInPieces,
+  readDocument: async (file) => {
+    checkSize(file, MAX_READ_MB);
+    const f: FileArg = { name: file.name, mimeType: file.type || 'application/octet-stream', data: await base64(file, file.name) };
+    return runServer<DocReading>((fns) => fns.readDocument(f));
+  },
 };
