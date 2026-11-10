@@ -104,6 +104,13 @@ export default function Home() {
       <section className="grid gap-6 xl:grid-cols-[1.35fr_1fr]">
         <div className="panel p-6">
           <SectionTitle title="Latest updates" />
+          {updates.length === 0 && (
+            <div className="text-muted-foreground flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-10 text-center text-sm">
+              <TrendingUp className="size-6" />
+              <p className="max-w-sm">No updates yet. When a project’s owner or contributors post progress from its <span className="text-foreground font-medium">Updates</span> tab, it shows up here.</p>
+              <Link to="/mine" className="text-foreground inline-flex items-center gap-1 font-medium underline-offset-2 hover:underline">Post an update on your project <ArrowRight className="size-4" /></Link>
+            </div>
+          )}
           <ol className="relative space-y-6 before:absolute before:top-2 before:bottom-2 before:left-[17px] before:w-px before:bg-border">
             {updates.map((u) => {
               const p = byId.get(u.projectId)!;
