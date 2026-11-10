@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   ArrowLeft, Mail, Pencil, Plus, Star, Trash2, Send, ChevronDown, Lock, Globe, FilePen, MessageSquare, History, Library, Megaphone, Rocket,
+  FileUp, Loader2, Paperclip,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -15,6 +16,8 @@ import {
 } from '@/components/hub';
 import { Button } from '@/components/ui/button';
 import { askConfirm } from '@/components/confirm';
+import { fileSize, titleFromFile, useFilePicker } from '@/components/uploads';
+import { MAX_UPLOAD_MB } from '@/lib/api';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -295,29 +298,70 @@ function ResourcesTab({ resources, editable, onAdd, onEdit, onDelete }: {
 }
 
 function ResourceDialog({ projectId, value, onClose }: { projectId: string; value: Resource | 'new' | null; onClose: () => void }) {
-  const { act } = useHub();
+  const { act, live } = useHub();
   const editing = value && value !== 'new' ? value : null;
   const [form, setForm] = useState({ title: '', type: 'confluence' as ResourceType, description: '', url: '' });
+  // New resources can be a link or (on the live site) an uploaded file.
+  const [mode, setMode] = useState<'link' | 'file'>('link');
+  const [file, setFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
   const [lastKey, setLastKey] = useState<string | null>(null);
   const key = value === 'new' ? 'new' : editing?.id ?? null;
   if (key !== lastKey) {
     setLastKey(key);
     setForm(editing ? { title: editing.title, type: editing.type, description: editing.description, url: editing.url } : { title: '', type: 'confluence', description: '', url: '' });
+    setMode('link');
+    setFile(null);
   }
-  const urlBad = form.url.length > 0 && !server.validUrl(form.url);
+  const urlBad = mode === 'link' && form.url.length > 0 && !server.validUrl(form.url);
+  const [pick, fileInput] = useFilePicker(([f]) => {
+    setFile(f);
+    setForm((x) => ({ ...x, title: x.title.trim() ? x.title : titleFromFile(f.name), type: server.resourceTypeFor(f.name, f.type) }));
+  });
 
   const submit = async () => {
-    if (await act((api) => api.saveResource(projectId, form, editing?.id), editing ? 'Resource updated' : 'Resource added')) onClose();
+    setSaving(true);
+    const ok = await act(async (api) => {
+      if (mode === 'file') {
+        if (!file) throw new server.Invalid('Choose a file to upload.');
+        const up = await api.uploadFile(file);
+        await api.saveResource(projectId, { ...form, url: up.url });
+      } else await api.saveResource(projectId, form, editing?.id);
+    }, editing ? 'Resource updated' : mode === 'file' ? 'File uploaded' : 'Resource added');
+    setSaving(false);
+    if (ok) onClose();
   };
 
   return (
-    <Dialog open={!!value} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={!!value} onOpenChange={(o) => !o && !saving && onClose()}>
       <DialogContent>
+        {fileInput}
         <DialogHeader>
           <DialogTitle>{editing ? 'Edit resource' : 'Add a resource'}</DialogTitle>
-          <DialogDescription>Links open in a new tab. Access to the linked tool still follows that tool’s own sharing settings.</DialogDescription>
+          <DialogDescription>
+            {mode === 'file'
+              ? 'The file is saved in the AI Hub’s Google Drive folder. Anyone at AnywhereWorks with the link can open it.'
+              : 'Links open in a new tab. Access to the linked tool still follows that tool’s own sharing settings.'}
+          </DialogDescription>
         </DialogHeader>
-        <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+        <form className="min-w-0 space-y-4" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+          {!editing && live && (
+            <div role="radiogroup" aria-label="Resource kind" className="bg-secondary grid grid-cols-2 gap-1 rounded-lg p-1">
+              {([['link', 'Add a link'], ['file', 'Upload a file']] as const).map(([k, label]) => (
+                <button type="button" role="radio" aria-checked={mode === k} key={k} onClick={() => setMode(k)}
+                  className={cn('cursor-pointer rounded-md px-3 py-1.5 text-sm font-medium transition', mode === k ? 'bg-foreground text-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {mode === 'file' && (
+            <div className="flex items-center gap-3 rounded-xl border border-dashed p-3">
+              <Paperclip className="text-muted-foreground size-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate text-sm">{file ? <>{file.name} <span className="text-muted-foreground">· {fileSize(file.size)}</span></> : <span className="text-muted-foreground">PDF, slides, image or document, up to {MAX_UPLOAD_MB} MB</span>}</span>
+              <Button type="button" variant="outline" size="sm" onClick={pick}><FileUp />{file ? 'Change' : 'Choose file'}</Button>
+            </div>
+          )}
           <div className="grid gap-4 sm:grid-cols-[1fr_11rem]">
             <div className="space-y-1.5"><Label htmlFor="rt">Title</Label><Input id="rt" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Project brief" autoFocus /></div>
             <div className="space-y-1.5"><Label>Type</Label>
@@ -327,15 +371,19 @@ function ResourceDialog({ projectId, value, onClose }: { projectId: string; valu
               </Select>
             </div>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="ru">Link</Label>
-            <Input id="ru" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://" aria-invalid={urlBad} />
-            {urlBad && <p className="text-destructive text-xs">Enter a full link that starts with https://</p>}
-          </div>
+          {mode === 'link' && (
+            <div className="space-y-1.5">
+              <Label htmlFor="ru">Link</Label>
+              <Input id="ru" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://" aria-invalid={urlBad} />
+              {urlBad && <p className="text-destructive text-xs">Enter a full link that starts with https://</p>}
+            </div>
+          )}
           <div className="space-y-1.5"><Label htmlFor="rd">Short description <span className="text-muted-foreground font-normal">(optional)</span></Label><Textarea id="rd" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit">{editing ? 'Save changes' : `Add ${resourceLabel(form.type).toLowerCase()}`}</Button>
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? <><Loader2 className="animate-spin" />{mode === 'file' ? 'Uploading…' : 'Saving…'}</> : editing ? 'Save changes' : mode === 'file' ? 'Upload file' : `Add ${resourceLabel(form.type).toLowerCase()}`}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

@@ -3,5 +3,5 @@
 export {
   canView, saveProject, setJourneyNote, setStatus, publish, deleteProject, toggleFeatured,
   saveResource, deleteResource, addUpdate, addComment, deleteComment, setAccess, setActive,
-  addDepartment, updateProfile,
+  addDepartment, updateProfile, fieldsFromText,
 } from './lib/server';

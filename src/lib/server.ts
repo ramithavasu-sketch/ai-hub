@@ -347,3 +347,87 @@ export function updateProfile(db: Db, actor: Person, input: { name?: string; tit
   if (input.interests !== undefined) me.interests = [...new Set(input.interests.map((s) => clean(s, 40)).filter(Boolean))].slice(0, 8);
   save(db);
 }
+
+// ---------- reading a project document ----------
+
+/** Form fields a project document can fill in. */
+export type DocField = 'name' | 'tagline' | 'description' | 'problem' | 'solution' | 'benefits' | 'technologies' | 'tags' | 'notes';
+
+// Headings people commonly use for each field, matched after numbering, bullets,
+// markdown marks and a trailing colon are stripped.
+const DOC_HEADINGS: [DocField, RegExp][] = [
+  ['name', /^(project (name|title)|name|title)$/],
+  ['tagline', /^(one[ -]?line(r| summary)?|tagline|summary|elevator pitch)$/],
+  ['description', /^((short |project )?description|overview|about( the project)?|what (it|this) (does|is)|introduction)$/],
+  ['problem', /^((the )?problem( statement| being addressed| to solve)?|challenges?|pain points?|current (situation|state|process)|background)$/],
+  ['solution', /^((the )?(proposed )?solution|approach|how it works|(the )?idea|proposal)$/],
+  ['benefits', /^(expected (outcomes?|results|benefits|impact)|outcomes?|benefits|impact|value|results|success (metrics|measures|criteria))$/],
+  ['technologies', /^((ai )?tools( used)?|(ai )?technolog(y|ies)( used)?|tech(nology)? stack|stack)$/],
+  ['tags', /^(keywords|tags)$/],
+  ['notes', /^((additional )?notes|next steps|comments|other information)$/],
+];
+
+const LIMITS: Partial<Record<DocField, number>> = { name: 120, tagline: 140 };
+
+function headingField(label: string): DocField | null {
+  const key = label.toLowerCase()
+    .replace(/[*_#>`]/g, '')
+    .replace(/^\s*([-•●▪◦]|\(?\d+[.)]|[a-z][.)])\s+/, '')
+    .replace(/[:：]\s*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return DOC_HEADINGS.find(([, re]) => re.test(key))?.[0] ?? null;
+}
+
+/**
+ * Pull project fields out of a document's plain text by looking for headings such as
+ * "Problem" or "Proposed solution:". Lines before the first heading give the name
+ * (first short line) and, if there is no description heading, the description.
+ */
+export function fieldsFromText(text: string): { fields: Partial<Record<DocField, string>>; found: DocField[] } {
+  const parts: Partial<Record<DocField, string[]>> = {};
+  const intro: string[] = [];
+  let current: DocField | null = null;
+  for (const raw of String(text ?? '').replace(/\r\n?/g, '\n').replace(/\v/g, '\n').split('\n')) {
+    const line = raw.trim();
+    const whole = line.length <= 60 ? headingField(line) : null;
+    const inline = !whole && line.match(/^([^:：]{1,40})[:：]\s*(.+)$/);
+    const inlineField = inline ? headingField(inline[1]) : null;
+    if (whole || inlineField) {
+      current = (whole || inlineField)!;
+      parts[current] ??= [];
+      if (inlineField && inline) parts[current]!.push(inline[2].trim());
+    } else if (current) parts[current]!.push(line);
+    else intro.push(line);
+  }
+
+  const tidy = (lines: string[]) => lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  const fields: Partial<Record<DocField, string>> = {};
+  for (const [k, lines] of Object.entries(parts) as [DocField, string[]][]) {
+    let v = k === 'technologies' || k === 'tags'
+      ? lines.map((l) => l.replace(/^([-•●▪◦*]|\d+[.)])\s*/, '').trim()).filter(Boolean).join(', ')
+      : tidy(lines);
+    if (k === 'name' || k === 'tagline') v = v.split('\n')[0];
+    if (v) fields[k] = clean(v, LIMITS[k]);
+  }
+
+  const introText = tidy(intro);
+  if (!fields.name && introText) {
+    const first = introText.split('\n')[0].replace(/^#+\s*/, '').trim();
+    if (first.length <= 100) {
+      fields.name = clean(first, 120);
+      intro.splice(0, intro.findIndex((l) => l.trim()) + 1);
+    }
+  }
+  const rest = tidy(intro);
+  if (!fields.description && rest) fields.description = clean(rest, 2000);
+  return { fields, found: Object.keys(fields) as DocField[] };
+}
+
+/** Best resource type for an uploaded file. */
+export function resourceTypeFor(fileName: string, mimeType: string): Resource['type'] {
+  if (mimeType.startsWith('image/')) return 'screenshot';
+  if (mimeType.startsWith('video/')) return 'video';
+  if (/presentation|powerpoint|keynote/.test(mimeType) || /\.(pptx?|key|odp)$/i.test(fileName)) return 'slides';
+  return 'file';
+}

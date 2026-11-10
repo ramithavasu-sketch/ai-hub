@@ -1,5 +1,5 @@
-import { cloneElement, isValidElement, useId, useMemo, useState, type ReactNode } from 'react';
-import { ArrowLeft, Check, ChevronDown, FilePen, Globe, Lock, Megaphone, X, Lightbulb } from 'lucide-react';
+import { cloneElement, isValidElement, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ArrowLeft, Check, ChevronDown, FilePen, Globe, Loader2, Lock, Megaphone, X, Lightbulb } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useHub } from '@/lib/store';
 import * as server from '@/lib/server';
@@ -8,6 +8,7 @@ import { Link, navigate } from '@/lib/router';
 import { splitList } from '@/lib/format';
 import type { Status, Visibility } from '@/lib/types';
 import { EmptyState, PersonAvatar } from '@/components/hub';
+import { Attachments, ImportDocument, toAttachment, type Attachment } from '@/components/uploads';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -86,7 +87,7 @@ function PeoplePicker({ value, onChange, exclude, placeholder }: { value: string
 }
 
 export default function ProjectForm({ id }: { id?: string }) {
-  const { db, me, act } = useHub();
+  const { db, me, act, live } = useHub();
   const existing = id ? db.projects.find((p) => p.id === id) : undefined;
 
   const [f, setF] = useState(() => ({
@@ -109,6 +110,31 @@ export default function ProjectForm({ id }: { id?: string }) {
   }));
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
 
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const [saving, setSaving] = useState(false);
+  // Remember what a save already did, so trying again after an error doesn't add things twice.
+  const savedId = useRef(id);
+  const linksAdded = useRef(false);
+
+  // Fill from a document: keep the form as it was so Undo can put it back.
+  const beforeFill = useRef<typeof f | null>(null);
+  const filledFrom = useRef<string | null>(null);
+  const fillFromDocument = (fields: Partial<Record<server.DocField, string>>, file: File) => {
+    beforeFill.current ??= f;
+    setF((x) => ({ ...x, ...fields }));
+    if (live) {
+      const doc = toAttachment(file);
+      setFiles((xs) => [...xs.filter((a) => a.key !== filledFrom.current), doc]);
+      filledFrom.current = doc.key;
+    }
+  };
+  const undoFill = () => {
+    if (beforeFill.current) setF(beforeFill.current);
+    beforeFill.current = null;
+    setFiles((xs) => xs.filter((a) => a.key !== filledFrom.current));
+    filledFrom.current = null;
+  };
+
   const missing = useMemo(() => {
     const m: string[] = [];
     if (!f.name.trim()) m.push('name');
@@ -130,17 +156,30 @@ export default function ProjectForm({ id }: { id?: string }) {
   const submit = async (asDraft: boolean) => {
     if (badLink) return void act(async () => { throw new server.Invalid(`The ${badLink[2]} link should start with https://`); });
     let saved = '';
+    setSaving(true);
     const ok = await act(async (api) => {
+      // Upload first, so nothing is saved if a file can't be uploaded.
+      for (const a of files) if (!a.url) a.url = (await api.uploadFile(a.file)).url;
       saved = await api.saveProject({
         ...f,
         technologies: splitList(f.technologies),
         tags: splitList(f.tags),
         visibility: asDraft ? 'draft' : f.access,
         allowedIds: f.access === 'restricted' ? f.allowedIds : [],
-      }, id);
-      for (const [type, url, title] of links)
-        if (url.trim()) await api.saveResource(saved, { type, url, title, description: '' });
+      }, savedId.current);
+      savedId.current = saved;
+      if (!linksAdded.current)
+        for (const [type, url, title] of links)
+          if (url.trim()) await api.saveResource(saved, { type, url, title, description: '' });
+      linksAdded.current = true;
+      for (const a of files) {
+        if (a.added) continue;
+        await api.saveResource(saved, { type: a.type, url: a.url!, title: a.title.trim() || a.file.name, description: '' });
+        a.added = true;
+      }
     }, asDraft ? 'Draft saved — you can finish it any time' : id ? 'Project updated' : 'Project published 🎉');
+    setSaving(false);
+    setFiles((xs) => [...xs]); // show which files made it if something failed part-way
     if (ok) navigate(`/projects/${saved}`);
   };
 
@@ -156,6 +195,7 @@ export default function ProjectForm({ id }: { id?: string }) {
             <p className="text-muted-foreground"><span className="text-foreground font-medium">Early ideas are welcome.</span> You don’t need documentation or a prototype to start. Save a draft with just a name, and come back when you’re ready.</p>
           </div>
         )}
+        <ImportDocument onFill={fillFromDocument} onUndo={undoFill} />
       </div>
 
       <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); submit(false); }}>
@@ -209,6 +249,8 @@ export default function ProjectForm({ id }: { id?: string }) {
             </div>
           )}
           {!id && <p className="text-muted-foreground -mt-2 text-xs">More links — Figma, GitHub, demos, screenshots, meeting notes — can be added from the project’s Resources tab.</p>}
+          {live && <Attachments value={files} onChange={setFiles} disabled={saving} />}
+          {id && live && <p className="text-muted-foreground -mt-2 text-xs">Files already on the project can be renamed or removed from its Resources tab.</p>}
           <Field label="Additional notes"><Textarea rows={2} value={f.notes} onChange={(e) => set('notes', e.target.value)} /></Field>
         </Section>
 
@@ -232,10 +274,10 @@ export default function ProjectForm({ id }: { id?: string }) {
             {missing.length && f.name.trim() ? `To publish, add: ${missing.join(', ')}` : 'Fields marked * are needed to publish.'}
           </span>
           {(!existing || existing.visibility === 'draft') && (
-            <Button type="button" variant="outline" size="lg" onClick={() => submit(true)} disabled={!f.name.trim()}><FilePen />Save as draft</Button>
+            <Button type="button" variant="outline" size="lg" onClick={() => submit(true)} disabled={!f.name.trim() || saving}><FilePen />Save as draft</Button>
           )}
-          <Button type="submit" size="lg" disabled={missing.length > 0} className="bg-gold hover:bg-gold text-[#111] hover:brightness-95">
-            <Megaphone />{existing && existing.visibility !== 'draft' ? 'Save changes' : 'Publish project'}
+          <Button type="submit" size="lg" disabled={missing.length > 0 || saving} className="bg-gold hover:bg-gold text-[#111] hover:brightness-95">
+            {saving && files.some((a) => !a.url) ? <><Loader2 className="animate-spin" />Uploading files…</> : <><Megaphone />{existing && existing.visibility !== 'draft' ? 'Save changes' : 'Publish project'}</>}
           </Button>
         </div>
       </form>

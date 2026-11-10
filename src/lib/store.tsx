@@ -18,6 +18,8 @@ interface Hub {
   account: ReturnType<typeof accountLinks> | null;
   /** Run an action as the signed-in person, then reload. Resolves false (and shows why) if it was refused. */
   act: (fn: (api: Api) => Promise<unknown>, ok?: string) => Promise<boolean>;
+  /** Direct access for calls that don't change data, such as reading a document. */
+  api: Api;
   /** Demo only: put the sample data back. */
   resetData: () => void;
 }
@@ -96,8 +98,8 @@ export function HubProvider({ children }: { children: ReactNode }) {
 
   const me = db && (LIVE ? db.people.find((p) => p.id === self?.id) ?? self : db.people.find((p) => p.id === meId) ?? db.people[0]);
   const value = useMemo(
-    () => (db && me ? { db, me, live: LIVE, signIn, account, act, resetData } : null),
-    [db, me, signIn, account, act, resetData],
+    () => (db && me ? { db, me, live: LIVE, signIn, account, act, api, resetData } : null),
+    [db, me, signIn, account, act, api, resetData],
   );
 
   if (gate !== 'ready' || !value) return <Gate state={gate} error={authError} person={self} />;

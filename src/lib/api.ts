@@ -8,6 +8,10 @@ import * as server from './server';
 import type { AccessRole, Db, Person, StageKey, Status } from './types';
 
 export const LIVE = import.meta.env.VITE_BACKEND === 'gas';
+export const MAX_UPLOAD_MB = 20;
+
+export interface UploadedFile { name: string; url: string; mimeType: string }
+export type DocReading = ReturnType<typeof server.fieldsFromText>;
 
 export interface ProfileInput { name?: string; title?: string; departmentId?: string; bio?: string; interests?: string[] }
 
@@ -28,6 +32,14 @@ export interface Api {
   setActive(personId: string, active: boolean): Promise<void>;
   addDepartment(name: string, description: string): Promise<void>;
   updateProfile(input: ProfileInput): Promise<void>;
+  /** Save a file and return a link to it (live: the AI Hub's Google Drive folder). */
+  uploadFile(file: File): Promise<UploadedFile>;
+  /** Read a project document and return the form fields it fills. */
+  readDocument(file: File): Promise<DocReading>;
+}
+
+function checkSize(file: File) {
+  if (file.size > MAX_UPLOAD_MB * 1024 * 1024) throw new server.Invalid(`${file.name} is too big. Files can be up to ${MAX_UPLOAD_MB} MB.`);
 }
 
 // ---------- demo: sample data in this browser ----------
@@ -55,6 +67,14 @@ export function demoApi(meId: () => string): Api {
     setActive: (id, a) => run((db, m) => server.setActive(db, m, id, a)),
     addDepartment: (n, d) => run((db, m) => server.addDepartment(db, m, n, d)),
     updateProfile: (input) => run((db, m) => server.updateProfile(db, m, input)),
+    // The demo has no Google Drive, so only plain-text documents can be read here.
+    uploadFile: async () => { throw new server.Invalid('Uploading files works on the live AI Hub. In this demo, add a link instead.'); },
+    readDocument: async (file) => {
+      checkSize(file);
+      if (!/^text\//.test(file.type) && !/\.(txt|md)$/i.test(file.name))
+        throw new server.Invalid('This demo can only read .txt files. Word and PDF files work on the live AI Hub.');
+      return server.fieldsFromText(await file.text());
+    },
   };
 }
 
@@ -62,17 +82,34 @@ export function demoApi(meId: () => string): Api {
 
 interface Reply { result: unknown; me: Person; data: Db | null; appUrl: string }
 
+type ServerFns = { api(name: string, args: unknown[]): void; uploadFile(file: FileArg): void; readDocument(file: FileArg): void };
+interface FileArg { name: string; mimeType: string; data: string }
+
 declare const google: {
-  script: { run: { withSuccessHandler(f: (r: Reply) => void): { withFailureHandler(f: (e: Error) => void): { api(name: string, args: unknown[]): void } } } };
+  script: { run: { withSuccessHandler(f: (r: unknown) => void): { withFailureHandler(f: (e: Error) => void): ServerFns } } };
 };
 
-function call(name: string, args: unknown[] = []): Promise<Reply> {
+/** Run a function in gas/Code.js. */
+function runServer<T>(pick: (fns: ServerFns) => void): Promise<T> {
   return new Promise((resolve, reject) =>
-    google.script.run
-      .withSuccessHandler(resolve)
-      .withFailureHandler((e) => reject(new Error(String(e?.message || 'Something went wrong. Please try again.').replace(/^(Exception|Error):\s*/, ''))))
-      .api(name, args),
+    pick(google.script.run
+      .withSuccessHandler((r) => resolve(r as T))
+      .withFailureHandler((e) => reject(new Error(String(e?.message || 'Something went wrong. Please try again.').replace(/^(Exception|Error):\s*/, ''))))),
   );
+}
+
+const call = (name: string, args: unknown[] = []) => runServer<Reply>((fns) => fns.api(name, args));
+
+/** Files travel to Apps Script as base64 text. */
+async function fileArg(file: File): Promise<FileArg> {
+  checkSize(file);
+  const url = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error(`We couldn’t open ${file.name}.`));
+    reader.readAsDataURL(file);
+  });
+  return { name: file.name, mimeType: file.type || 'application/octet-stream', data: url.slice(url.indexOf(',') + 1) };
 }
 
 // Every reply carries fresh data, so the reload that follows an action can reuse it
@@ -122,4 +159,6 @@ export const liveApi: Api = {
   setActive: (id, a) => send('setActive', id, a),
   addDepartment: (n, d) => send('addDepartment', n, d),
   updateProfile: (input) => send('updateProfile', input),
+  uploadFile: async (file) => { const f = await fileArg(file); return runServer<UploadedFile>((fns) => fns.uploadFile(f)); },
+  readDocument: async (file) => { const f = await fileArg(file); return runServer<DocReading>((fns) => fns.readDocument(f)); },
 };

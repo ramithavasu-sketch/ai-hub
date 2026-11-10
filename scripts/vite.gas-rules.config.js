@@ -7,6 +7,8 @@ export default defineConfig({
     outDir: path.resolve(import.meta.dirname, '../gas'),
     emptyOutDir: false,
     minify: false,
+    // Apps Script's V8 runtime lacks some newer syntax (such as ??=), so compile down.
+    target: 'es2019',
     lib: { entry: path.resolve(import.meta.dirname, '../src/gas-rules.ts'), name: 'AIHub', formats: ['iife'], fileName: () => 'rules.js' },
   },
 });

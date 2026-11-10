@@ -6,10 +6,12 @@
  * creates in the owner's Drive on first use. Every action goes through api(), which
  * works out who is asking and runs the same rules as the demo (rules.js, built from
  * src/lib/server.ts) before saving. People only ever receive projects they may see.
+ * Uploaded files go to an "AnywhereWorks AI Hub — files" folder in the same Drive.
  */
 
 var DOMAIN = 'anywhere.co';
 var ACTIVITY_KEEP = 3000; // newest activity rows kept in the sheet
+var MAX_UPLOAD_MB = 20;
 
 // Column layout per tab. s = text, j = JSON (lists and objects), b = yes/no, n = number.
 var SCHEMA = {
@@ -90,6 +92,72 @@ function api(name, args) {
 
 function appUrl_() {
   try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; }
+}
+
+// ---------- files ----------
+
+/** Save an uploaded file in the AI Hub's Drive folder. Anyone at Anywhere.co with the link can open it. */
+function uploadFile(file) {
+  uploader_();
+  var saved = filesFolder_().createFile(blobFrom_(file));
+  try {
+    saved.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.VIEW);
+  } catch (e) {
+    // Some Workspace settings block link sharing; the file is still saved and the owner can share it.
+  }
+  return { name: saved.getName(), url: saved.getUrl(), mimeType: saved.getMimeType() };
+}
+
+/** Read a project document (Word, PDF, Google Doc export or text) and return the form fields it fills. */
+function readDocument(file) {
+  uploader_();
+  var blob = blobFrom_(file);
+  var text;
+  if (/^text\//.test(blob.getContentType()) || /\.(txt|md)$/i.test(file.name)) {
+    text = blob.getDataAsString('UTF-8');
+  } else {
+    // Google converts Word, PDF (with OCR) and similar files into a temporary Google Doc we can read.
+    var temp;
+    try {
+      temp = Drive.Files.create({ name: 'AI Hub import (temporary)', mimeType: MimeType.GOOGLE_DOCS, parents: [filesFolder_().getId()] }, blob);
+    } catch (e) {
+      throw new Error('We couldn’t read that file. Try a Word document, PDF or text file.');
+    }
+    try { text = DocumentApp.openById(temp.id).getBody().getText(); } finally { Drive.Files.remove(temp.id); }
+  }
+  return AIHub.fieldsFromText(text);
+}
+
+/** Only active contributors and admins may upload. Read-only, so no lock is needed. */
+function uploader_() {
+  var email = String(Session.getActiveUser().getEmail() || '').toLowerCase();
+  var me = readDb_(openStore_()).people.filter(function (p) { return p.email.toLowerCase() === email; })[0];
+  if (!me) throw new Error('Refresh the page and try again.');
+  if (!me.active || me.accessRole === 'viewer') throw new Error('Ask an admin for contributor access to upload files.');
+  return me;
+}
+
+function blobFrom_(file) {
+  if (!file || !file.data) throw new Error('Choose a file to upload.');
+  if (file.data.length * 0.75 > MAX_UPLOAD_MB * 1024 * 1024) throw new Error('Files can be up to ' + MAX_UPLOAD_MB + ' MB.');
+  var name = String(file.name || 'file').slice(0, 200);
+  return Utilities.newBlob(Utilities.base64Decode(file.data), file.mimeType || 'application/octet-stream', name);
+}
+
+function filesFolder_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('FILES_FOLDER_ID');
+  if (id) {
+    try {
+      var folder = DriveApp.getFolderById(id);
+      if (!folder.isTrashed()) return folder;
+    } catch (e) {
+      // Folder was deleted; make a new one below.
+    }
+  }
+  var created = DriveApp.createFolder('AnywhereWorks AI Hub — files');
+  props.setProperty('FILES_FOLDER_ID', created.getId());
+  return created;
 }
 
 // ---------- who is asking ----------
