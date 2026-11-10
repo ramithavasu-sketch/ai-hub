@@ -46,6 +46,8 @@ export interface Person {
   interests: string[];
   accessRole: AccessRole;
   active: boolean;
+  /** Profile picture as a small JPEG data URL, or empty for initials. */
+  photo?: string;
 }
 
 export interface Project {

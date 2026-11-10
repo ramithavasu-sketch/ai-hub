@@ -15,7 +15,7 @@ const CHUNK = 4 * 1024 * 1024; // upload piece size; Drive needs a multiple of 2
 export interface UploadedFile { name: string; url: string; mimeType: string }
 export type DocReading = ReturnType<typeof server.fieldsFromText>;
 
-export interface ProfileInput { name?: string; title?: string; departmentId?: string; bio?: string; interests?: string[] }
+export interface ProfileInput { name?: string; title?: string; departmentId?: string; bio?: string; interests?: string[]; photo?: string }
 
 export interface Api {
   load(): Promise<Db>;

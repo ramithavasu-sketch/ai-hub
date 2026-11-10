@@ -14,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { PhotoPicker } from '@/components/uploads';
 
 export function People() {
   const { db, me } = useHub();
@@ -76,6 +77,7 @@ export function Profile({ id }: { id: string }) {
   const [title, setTitle] = useState('');
   const [deptId, setDeptId] = useState('');
   const [interests, setInterests] = useState('');
+  const [photo, setPhoto] = useState('');
 
   if (!person) return <EmptyState title="Person not found" action={<Link to="/people" className="underline">Back to contributors</Link>} />;
 
@@ -109,7 +111,7 @@ export function Profile({ id }: { id: string }) {
             <div className="flex gap-2 sm:pt-5">
               <EmailPopover name={person.name} email={person.email}><button className="bg-foreground text-background inline-flex cursor-pointer items-center gap-2 rounded-full px-4 py-2 text-sm font-medium hover:opacity-90"><Mail className="size-4" />Email</button></EmailPopover>
               {me.id === person.id && (
-                <Button variant="outline" onClick={() => { setName(person.name); setBio(person.bio); setTitle(person.title); setDeptId(person.departmentId); setInterests(person.interests.join(', ')); setEditing(true); }}><Pencil />Edit profile</Button>
+                <Button variant="outline" onClick={() => { setName(person.name); setBio(person.bio); setTitle(person.title); setDeptId(person.departmentId); setInterests(person.interests.join(', ')); setPhoto(person.photo ?? ''); setEditing(true); }}><Pencil />Edit profile</Button>
               )}
             </div>
           </div>
@@ -138,6 +140,7 @@ export function Profile({ id }: { id: string }) {
         <DialogContent>
           <DialogHeader><DialogTitle>Edit your profile</DialogTitle></DialogHeader>
           <div className="space-y-4">
+            <PhotoPicker name={name} value={photo} onChange={setPhoto} />
             <div className="space-y-1.5"><Label htmlFor="name">Name</Label><Input id="name" value={name} onChange={(e) => setName(e.target.value)} /></div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5"><Label htmlFor="title">Job title</Label><Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} /></div>
@@ -153,7 +156,7 @@ export function Profile({ id }: { id: string }) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
-            <Button onClick={async () => { if (await act((api) => api.updateProfile({ name, title, ...(deptId ? { departmentId: deptId } : {}), bio, interests: splitList(interests) }), 'Profile updated')) setEditing(false); }}>Save</Button>
+            <Button onClick={async () => { if (await act((api) => api.updateProfile({ name, title, ...(deptId ? { departmentId: deptId } : {}), bio, interests: splitList(interests), photo }), 'Profile updated')) setEditing(false); }}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

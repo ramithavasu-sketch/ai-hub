@@ -331,7 +331,10 @@ export function addDepartment(db: Db, actor: Person, name: string, description: 
   save(db);
 }
 
-export function updateProfile(db: Db, actor: Person, input: { name?: string; title?: string; departmentId?: string; bio?: string; interests?: string[] }) {
+/** Longest profile picture accepted (the page shrinks photos to about 10 KB first). */
+export const MAX_PHOTO_CHARS = 45000;
+
+export function updateProfile(db: Db, actor: Person, input: { name?: string; title?: string; departmentId?: string; bio?: string; interests?: string[]; photo?: string }) {
   const me = db.people.find((x) => x.id === actor.id);
   if (!me) return;
   if (input.name !== undefined) {
@@ -345,6 +348,11 @@ export function updateProfile(db: Db, actor: Person, input: { name?: string; tit
   if (input.title !== undefined) me.title = clean(input.title, 80);
   if (input.bio !== undefined) me.bio = clean(input.bio, 600);
   if (input.interests !== undefined) me.interests = [...new Set(input.interests.map((s) => clean(s, 40)).filter(Boolean))].slice(0, 8);
+  if (input.photo !== undefined) {
+    const photo = String(input.photo);
+    if (photo && (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(photo) || photo.length > MAX_PHOTO_CHARS)) throw new Invalid('That picture couldn’t be used. Try a JPG or PNG photo.');
+    me.photo = photo;
+  }
   save(db);
 }
 

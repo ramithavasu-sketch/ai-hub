@@ -19,6 +19,9 @@ import type { Person, Project, Resource, ResourceType, Status } from '@/lib/type
 export function PersonAvatar({ person, name, className }: { person?: Person; name?: string; className?: string }) {
   const n = person?.name ?? name ?? '?';
   const h = hueOf(n);
+  if (person?.photo) {
+    return <img src={person.photo} alt="" title={n} className={cn('inline-block size-9 shrink-0 select-none rounded-full object-cover ring-2 ring-card', className)} />;
+  }
   return (
     <span
       className={cn('inline-flex size-9 shrink-0 select-none items-center justify-center rounded-full text-xs font-semibold ring-2 ring-card', className)}

@@ -18,7 +18,7 @@ var MAX_READ_MB = 20;   // documents read to fill the form
 var SCHEMA = {
   departments: [['id', 's'], ['name', 's'], ['description', 's'], ['hue', 'n']],
   people: [['id', 's'], ['name', 's'], ['email', 's'], ['title', 's'], ['departmentId', 's'], ['bio', 's'],
-    ['interests', 'j'], ['accessRole', 's'], ['active', 'b']],
+    ['interests', 'j'], ['accessRole', 's'], ['active', 'b'], ['photo', 's']],
   projects: [['id', 's'], ['name', 's'], ['tagline', 's'], ['description', 's'], ['problem', 's'], ['solution', 's'],
     ['benefits', 's'], ['ownerId', 's'], ['contributorIds', 'j'], ['departmentId', 's'], ['status', 's'],
     ['visibility', 's'], ['allowedIds', 'j'], ['technologies', 'j'], ['tags', 'j'], ['featured', 'b'],
@@ -350,6 +350,8 @@ function writeTable_(ss, table, rows) {
   var cols = SCHEMA[table];
   var sheet = ss.getSheetByName(table);
   var last = sheet.getLastRow();
+  // Columns added in later versions (like people.photo) get their heading on the first save.
+  if (sheet.getLastColumn() < cols.length) sheet.getRange(1, 1, 1, cols.length).setValues([cols.map(function (c) { return c[0]; })]).setFontWeight('bold');
   if (last > 1) sheet.getRange(2, 1, last - 1, cols.length).clearContent();
   if (!rows.length) return;
   var values = rows.map(function (r) { return cols.map(function (c) { return toCell_(r[c[0]], c[1]); }); });
