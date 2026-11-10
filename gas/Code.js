@@ -96,6 +96,17 @@ function appUrl_() {
 
 // ---------- files ----------
 
+/**
+ * Run this once from the Apps Script editor after the app gains new permissions.
+ * The web app can't show Google's approval screen itself; running a function here does.
+ */
+function authorize() {
+  DriveApp.getRootFolder();
+  DocumentApp.getActiveDocument();
+  SpreadsheetApp.getActiveSpreadsheet();
+  Logger.log('All set. The AI Hub can now save files and read documents.');
+}
+
 /** Save an uploaded file in the AI Hub's Drive folder. Anyone at Anywhere.co with the link can open it. */
 function uploadFile(file) {
   uploader_();
