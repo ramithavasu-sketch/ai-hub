@@ -17,7 +17,8 @@ export type DocReading = ReturnType<typeof server.fieldsFromText>;
 
 export interface ProfileInput { name?: string; title?: string; departmentId?: string; bio?: string; interests?: string[]; photo?: string }
 
-export interface FeedbackInput { page: string; path: string; rating: FeedbackRating; message: string }
+export interface FeedbackInput { page: string; path: string; rating: FeedbackRating; message: string; imageUrl?: string }
+export const MAX_FEEDBACK_IMAGE_MB = 10;
 
 export interface Api {
   load(): Promise<Db>;
@@ -37,6 +38,8 @@ export interface Api {
   addDepartment(name: string, description: string): Promise<void>;
   updateProfile(input: ProfileInput): Promise<void>;
   submitFeedback(input: FeedbackInput): Promise<void>;
+  /** Store an image for feedback and return its link. */
+  attachFeedbackImage(file: File): Promise<string>;
   setFeedbackStatus(id: string, status: FeedbackStatus): Promise<void>;
   /** Save a file and return a link to it (live: the AI Hub's Google Drive folder). */
   uploadFile(file: File, onProgress?: (fraction: number) => void): Promise<UploadedFile>;
@@ -46,6 +49,41 @@ export interface Api {
 
 function checkSize(file: File, maxMb: number) {
   if (file.size > maxMb * 1024 * 1024) throw new server.Invalid(`${file.name} is too big. Files can be up to ${maxMb} MB.`);
+}
+
+function checkImage(file: File) {
+  if (!/^image\/(jpeg|png|webp|gif)$/.test(file.type)) throw new server.Invalid('Attach a picture (JPG, PNG, WebP or GIF).');
+  checkSize(file, MAX_FEEDBACK_IMAGE_MB);
+}
+
+/** Draw an image no wider or taller than maxPx and return the largest JPEG data URL under maxChars. */
+export async function shrinkImage(file: File, maxPx: number, maxChars: number): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new server.Invalid('We couldn’t open that picture. Try a JPG or PNG.'));
+      i.src = url;
+    });
+    for (const px of [maxPx, Math.round(maxPx * 0.7), Math.round(maxPx * 0.5)]) {
+      const scale = Math.min(1, px / Math.max(img.naturalWidth, img.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      for (const q of [0.8, 0.6, 0.45]) {
+        const data = canvas.toDataURL('image/jpeg', q);
+        if (data.length <= maxChars) return data;
+      }
+    }
+    throw new server.Invalid('That picture is too detailed to attach here. Try a smaller one.');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 // ---------- demo: sample data in this browser ----------
@@ -74,6 +112,8 @@ export function demoApi(meId: () => string): Api {
     addDepartment: (n, d) => run((db, m) => server.addDepartment(db, m, n, d)),
     updateProfile: (input) => run((db, m) => server.updateProfile(db, m, input)),
     submitFeedback: (input) => run((db, m) => server.submitFeedback(db, m, input)),
+    // No Google Drive in the demo: keep a shrunken copy in this browser instead.
+    attachFeedbackImage: (file) => { checkImage(file); return shrinkImage(file, 1000, server.MAX_PHOTO_CHARS); },
     setFeedbackStatus: (id, st) => run((db, m) => server.setFeedbackStatus(db, m, id, st)),
     // The demo has no Google Drive, so only plain-text documents can be read here.
     uploadFile: async () => { throw new server.Invalid('Uploading files works on the live AI Hub. In this demo, add a link instead.'); },
@@ -92,8 +132,8 @@ interface Reply { result: unknown; me: Person; data: Db | null; appUrl: string }
 
 type ServerFns = {
   api(name: string, args: unknown[]): void;
-  startUpload(name: string, mimeType: string, size: number): void;
-  uploadChunk(session: string, start: number, size: number, data: string): void;
+  startUpload(name: string, mimeType: string, size: number, purpose?: string): void;
+  uploadChunk(session: string, start: number, size: number, data: string, purpose?: string): void;
   readDocument(file: FileArg): void;
 };
 interface FileArg { name: string; mimeType: string; data: string }
@@ -129,14 +169,14 @@ async function base64(blob: Blob, name: string): Promise<string> {
 }
 
 /** Upload in pieces straight into the AI Hub's Drive folder (see startUpload in Code.js). */
-async function uploadInPieces(file: File, onProgress?: (fraction: number) => void): Promise<UploadedFile> {
+async function uploadInPieces(file: File, onProgress?: (fraction: number) => void, purpose?: 'feedback'): Promise<UploadedFile> {
   checkSize(file, MAX_UPLOAD_MB);
   if (!file.size) throw new server.Invalid(`${file.name} is empty.`);
   const type = file.type || 'application/octet-stream';
-  const session = await runServer<string>((fns) => fns.startUpload(file.name, type, file.size));
+  const session = await runServer<string>((fns) => fns.startUpload(file.name, type, file.size, purpose));
   for (let start = 0; start < file.size; start += CHUNK) {
     const data = await base64(file.slice(start, start + CHUNK), file.name);
-    const done = await runServer<UploadedFile | null>((fns) => fns.uploadChunk(session, start, file.size, data));
+    const done = await runServer<UploadedFile | null>((fns) => fns.uploadChunk(session, start, file.size, data, purpose));
     onProgress?.(Math.min(1, (start + CHUNK) / file.size));
     if (done) return done;
   }
@@ -191,8 +231,9 @@ export const liveApi: Api = {
   addDepartment: (n, d) => send('addDepartment', n, d),
   updateProfile: (input) => send('updateProfile', input),
   submitFeedback: (input) => send('submitFeedback', input),
+  attachFeedbackImage: async (file) => { checkImage(file); return (await uploadInPieces(file, undefined, 'feedback')).url; },
   setFeedbackStatus: (id, st) => send('setFeedbackStatus', id, st),
-  uploadFile: uploadInPieces,
+  uploadFile: (file, onProgress) => uploadInPieces(file, onProgress),
   readDocument: async (file) => {
     checkSize(file, MAX_READ_MB);
     const f: FileArg = { name: file.name, mimeType: file.type || 'application/octet-stream', data: await base64(file, file.name) };

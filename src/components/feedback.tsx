@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react';
-import { MessageSquareText, Sparkles, ThumbsUp, Wrench } from 'lucide-react';
+import { useEffect, useMemo, useState, type ClipboardEvent } from 'react';
+import { ExternalLink, ImagePlus, Loader2, MessageSquareText, Sparkles, ThumbsUp, Wrench, X } from 'lucide-react';
+import { MAX_FEEDBACK_IMAGE_MB } from '@/lib/api';
+import { fileSize, useFilePicker } from './uploads';
 import { useHub, useLookup } from '@/lib/store';
 import { match, navigate } from '@/lib/router';
 import { timeAgo } from '@/lib/format';
@@ -44,13 +46,44 @@ export function FeedbackButton({ path }: { path: string }) {
   const [open, setOpen] = useState(false);
   const [rating, setRating] = useState<FeedbackRating | null>(null);
   const [message, setMessage] = useState('');
+  const [image, setImage] = useState<File | null>(null);
+  const [preview, setPreview] = useState('');
+  const [imageError, setImageError] = useState('');
+  const [sending, setSending] = useState(false);
   const page = pageName(path, db);
   const needsMessage = rating === 'could_be_better' && !message.trim();
 
-  const start = () => { setRating(null); setMessage(''); setOpen(true); };
+  // A local preview of the picked image, released when it changes.
+  useEffect(() => {
+    if (!image) { setPreview(''); return; }
+    const url = URL.createObjectURL(image);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [image]);
+
+  const pickImage = (file: File) => {
+    setImageError('');
+    if (!/^image\/(jpeg|png|webp|gif)$/.test(file.type)) return setImageError('Attach a picture (JPG, PNG, WebP or GIF).');
+    if (file.size > MAX_FEEDBACK_IMAGE_MB * 1024 * 1024) return setImageError(`Pictures can be up to ${MAX_FEEDBACK_IMAGE_MB} MB.`);
+    setImage(file);
+  };
+  const [chooseImage, imageInput] = useFilePicker(([f]) => pickImage(f), { accept: 'image/jpeg,image/png,image/webp,image/gif' });
+  // A screenshot pasted into the comment box (Cmd+V) is attached too.
+  const onPaste = (e: ClipboardEvent) => {
+    const file = [...e.clipboardData.files].find((f) => f.type.startsWith('image/'));
+    if (file) { e.preventDefault(); pickImage(new File([file], file.name && file.name !== 'image.png' ? file.name : `screenshot-${Date.now()}.png`, { type: file.type })); }
+  };
+
+  const start = () => { setRating(null); setMessage(''); setImage(null); setImageError(''); setOpen(true); };
   const submit = async () => {
     if (!rating) return;
-    if (await act((api) => api.submitFeedback({ page, path, rating, message }), 'Thanks! Your feedback was sent to the admin team.')) setOpen(false);
+    setSending(true);
+    const ok = await act(async (api) => {
+      const imageUrl = image ? await api.attachFeedbackImage(image) : '';
+      await api.submitFeedback({ page, path, rating, message, imageUrl });
+    }, 'Thanks! Your feedback was sent to the admin team.');
+    setSending(false);
+    if (ok) setOpen(false);
   };
 
   return (
@@ -80,13 +113,34 @@ export function FeedbackButton({ path }: { path: string }) {
                 {rating === 'could_be_better' ? 'What could be better?' : 'Anything to add?'}{' '}
                 <span className="text-muted-foreground font-normal">{rating === 'could_be_better' ? '(required)' : '(optional)'}</span>
               </Label>
-              <Textarea id="fb-msg" rows={4} maxLength={2000} value={message} onChange={(e) => setMessage(e.target.value)}
+              <Textarea id="fb-msg" rows={4} maxLength={2000} value={message} onChange={(e) => setMessage(e.target.value)} onPaste={onPaste}
                 placeholder={rating === 'could_be_better' ? 'What were you trying to do, and what got in the way?' : 'What do you like, or what would you add?'} />
+            </div>
+            <div className="space-y-2">
+              {imageInput}
+              {image ? (
+                <div className="flex items-center gap-3 rounded-xl border p-2">
+                  {preview && <img src={preview} alt="Attached image preview" className="size-14 shrink-0 rounded-lg border object-cover" />}
+                  <div className="min-w-0 flex-1 text-sm">
+                    <div className="truncate font-medium">{image.name}</div>
+                    <div className="text-muted-foreground text-xs">{fileSize(image.size)}</div>
+                  </div>
+                  <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" onClick={() => setImage(null)} disabled={sending} aria-label="Remove attached image"><X /></Button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <Button type="button" variant="outline" size="sm" onClick={chooseImage}><ImagePlus />Attach image</Button>
+                  <span className="text-muted-foreground text-xs">Optional · a screenshot helps · up to {MAX_FEEDBACK_IMAGE_MB} MB, or paste one into the box above</span>
+                </div>
+              )}
+              {imageError && <p role="alert" className="text-destructive text-xs">{imageError}</p>}
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={submit} disabled={!rating || needsMessage}>Send feedback</Button>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={sending}>Cancel</Button>
+            <Button onClick={submit} disabled={!rating || needsMessage || sending}>
+              {sending ? <><Loader2 className="animate-spin" />{image ? 'Uploading…' : 'Sending…'}</> : 'Send feedback'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -143,6 +197,7 @@ export function FeedbackTracker() {
                   </div>
                   <button onClick={() => navigate(f.path)} className="text-muted-foreground cursor-pointer text-xs hover:underline">on {f.page}</button>
                   {f.message ? <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{f.message}</p> : <p className="text-muted-foreground text-sm italic">No comment added.</p>}
+                  {f.imageUrl && <FeedbackImage url={f.imageUrl} />}
                 </div>
                 <Select value={f.status} onValueChange={(v) => act((api) => api.setFeedbackStatus(f.id, v as FeedbackStatus))}>
                   <SelectTrigger className="h-8! w-36 shrink-0" aria-label={`Status of feedback from ${who?.name ?? 'someone'}`}><SelectValue /></SelectTrigger>
@@ -154,5 +209,30 @@ export function FeedbackTracker() {
         </ul>
       )}
     </div>
+  );
+}
+
+/** The picture attached to a piece of feedback: shown inline (demo) or as a Drive link (live). */
+function FeedbackImage({ url }: { url: string }) {
+  const [big, setBig] = useState(false);
+  if (url.startsWith('data:image/')) {
+    return (
+      <>
+        <button onClick={() => setBig(true)} className="mt-1 block cursor-zoom-in" aria-label="Open the attached image">
+          <img src={url} alt="Attached to the feedback" className="max-h-32 rounded-lg border object-contain" />
+        </button>
+        <Dialog open={big} onOpenChange={setBig}>
+          <DialogContent className="sm:max-w-3xl">
+            <DialogHeader><DialogTitle>Attached image</DialogTitle></DialogHeader>
+            <img src={url} alt="Attached to the feedback" className="max-h-[70vh] w-full rounded-lg object-contain" />
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+  return (
+    <a href={url} target="_blank" rel="noreferrer" className="bg-card hover:bg-accent mt-1 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium">
+      <ImagePlus className="size-3.5" />View attached image<ExternalLink className="size-3" />
+    </a>
   );
 }

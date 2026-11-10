@@ -13,6 +13,7 @@ var DOMAIN = 'anywhere.co';
 var ACTIVITY_KEEP = 3000; // newest activity rows kept in the sheet
 var MAX_UPLOAD_MB = 50; // attachments, sent in pieces
 var MAX_READ_MB = 20;   // documents read to fill the form
+var MAX_FEEDBACK_IMAGE_MB = 10; // pictures attached to feedback
 
 // Column layout per tab. s = text, j = JSON (lists and objects), b = yes/no, n = number.
 var SCHEMA = {
@@ -29,7 +30,7 @@ var SCHEMA = {
   comments: [['id', 's'], ['projectId', 's'], ['authorId', 's'], ['date', 's'], ['body', 's']],
   activity: [['id', 's'], ['projectId', 's'], ['actorId', 's'], ['date', 's'], ['action', 's']],
   feedback: [['id', 's'], ['authorId', 's'], ['date', 's'], ['page', 's'], ['path', 's'], ['rating', 's'], ['message', 's'],
-    ['status', 's']],
+    ['status', 's'], ['imageUrl', 's']],
 };
 
 var DEPARTMENTS = [
@@ -118,10 +119,16 @@ function authorize() {
  * because Apps Script can't receive a large file in one call. startUpload returns the
  * upload address; the page then sends each piece to uploadChunk.
  */
-function startUpload(name, mimeType, size) {
-  uploader_();
+function startUpload(name, mimeType, size, purpose) {
+  uploader_(purpose);
   size = Number(size) || 0;
   if (size <= 0) throw new Error('That file is empty.');
+  if (purpose === 'feedback') {
+    // Anyone may attach a picture to feedback, so keep these small and image-only.
+    if (!/^image\/(jpeg|png|webp|gif)$/.test(String(mimeType))) throw new Error('Attach a picture (JPG, PNG, WebP or GIF).');
+    if (size > MAX_FEEDBACK_IMAGE_MB * 1024 * 1024) throw new Error('Pictures can be up to ' + MAX_FEEDBACK_IMAGE_MB + ' MB.');
+    name = 'Feedback – ' + String(name || 'image');
+  }
   if (size > MAX_UPLOAD_MB * 1024 * 1024) throw new Error('Files can be up to ' + MAX_UPLOAD_MB + ' MB.');
   var res = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
     method: 'post',
@@ -141,8 +148,8 @@ function startUpload(name, mimeType, size) {
 }
 
 /** Send one piece. Returns null while more pieces are expected, then the saved file. */
-function uploadChunk(session, start, size, data) {
-  uploader_();
+function uploadChunk(session, start, size, data, purpose) {
+  uploader_(purpose);
   if (!/^https:\/\/www\.googleapis\.com\/upload\/drive\/v3\/files\?/.test(String(session))) throw new Error('The upload was interrupted. Please try again.');
   var bytes = Utilities.base64Decode(data);
   var res = UrlFetchApp.fetch(session, {
@@ -203,11 +210,13 @@ function uploadFile(file) {
 }
 
 /** Only active contributors and admins may upload. Read-only, so no lock is needed. */
-function uploader_() {
+function uploader_(purpose) {
   var email = String(Session.getActiveUser().getEmail() || '').toLowerCase();
   var me = readDb_(openStore_()).people.filter(function (p) { return p.email.toLowerCase() === email; })[0];
   if (!me) throw new Error('Refresh the page and try again.');
-  if (!me.active || me.accessRole === 'viewer') throw new Error('Ask an admin for contributor access to upload files.');
+  if (!me.active) throw new Error('Your access to the AI Hub is turned off.');
+  if (purpose === 'feedback') return me; // everyone may attach a picture to feedback
+  if (me.accessRole === 'viewer') throw new Error('Ask an admin for contributor access to upload files.');
   return me;
 }
 

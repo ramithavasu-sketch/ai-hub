@@ -126,6 +126,8 @@ export interface Feedback {
   rating: FeedbackRating;
   message: string;
   status: FeedbackStatus;
+  /** Optional image: a Google Drive link (live) or a small data URL (demo). */
+  imageUrl?: string;
 }
 
 export interface Db {
