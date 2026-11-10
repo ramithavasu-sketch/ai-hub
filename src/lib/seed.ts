@@ -2,7 +2,7 @@ import type { Db, Project, Resource, Update, Comment, Activity, Person, Departme
 
 // All names and data below are made up for the demo.
 
-export const DB_VERSION = 3;
+export const DB_VERSION = 4;
 
 const DAY = 86_400_000;
 const ago = (days: number, hour = 10) => {
@@ -352,6 +352,7 @@ const activity: Activity[] = [
 const feedback: Feedback[] = [
   { id: id('f'), authorId: 'u-ravi', date: ago(3, 11), page: 'Explore projects', path: '/projects', rating: 'works_well', message: 'The filters make it quick to find what other teams are building.', status: 'new' },
   { id: id('f'), authorId: 'u-omar', date: ago(2, 15), page: 'Resource library', path: '/resources', rating: 'could_be_better', message: 'Would like to sort resources by newest first.', status: 'in_progress' },
+  { id: id('f'), authorId: 'u-asha', date: ago(5, 9), page: 'Explore projects', path: '/projects', rating: 'could_be_better', message: 'Filtering by department resets when I go back.', status: 'done', response: 'Fixed — your filters now stay when you come back to Explore.', respondedBy: 'u-ravi', respondedAt: ago(1, 12) },
   { id: id('f'), authorId: 'u-nina', date: ago(1, 10), page: 'Home', path: '/', rating: 'could_be_better', message: 'A short “how to add a project” guide on the home page would help new people.', status: 'new' },
 ];
 

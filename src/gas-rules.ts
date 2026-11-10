@@ -3,5 +3,5 @@
 export {
   canView, saveProject, setJourneyNote, setStatus, publish, deleteProject, toggleFeatured,
   saveResource, deleteResource, addUpdate, addComment, deleteComment, setAccess, setActive,
-  addDepartment, updateProfile, fieldsFromText, isAdmin, submitFeedback, setFeedbackStatus,
+  addDepartment, updateProfile, fieldsFromText, isAdmin, submitFeedback, setFeedbackStatus, respondToFeedback,
 } from './lib/server';

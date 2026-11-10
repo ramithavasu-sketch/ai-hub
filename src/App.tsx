@@ -1,3 +1,4 @@
+import { MyFeedback } from '@/components/feedback';
 import { HubProvider } from '@/lib/store';
 import { match, useRoute } from '@/lib/router';
 import { Shell } from '@/components/Shell';
@@ -26,6 +27,7 @@ function Page({ path, query }: { path: string; query: URLSearchParams }) {
   if (path === '/resources') return <Resources />;
   if (path === '/mine') return <MyProjects />;
   if (path === '/admin') return <Admin />;
+  if (path === '/feedback') return <MyFeedback />;
   return <EmptyState title="Page not found">That link doesn’t go anywhere yet.</EmptyState>;
 }
 

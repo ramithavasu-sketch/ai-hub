@@ -170,10 +170,17 @@ function Notifications() {
   const items = useMemo(() => {
     const mine = new Map(db.projects.filter((p) => isMember(me, p) && canView(me, p)).map((p) => [p.id, p]));
     const acts = db.activity.filter((a) => mine.has(a.projectId) && a.actorId !== me.id)
-      .map((a) => ({ id: a.id, date: a.date, who: a.actorId, text: a.action, project: mine.get(a.projectId)! }));
+      .map((a) => ({ id: a.id, date: a.date, who: a.actorId, text: a.action, sub: mine.get(a.projectId)!.name, to: `/projects/${a.projectId}` }));
     const coms = db.comments.filter((c) => mine.has(c.projectId) && c.authorId !== me.id)
-      .map((c) => ({ id: c.id, date: c.date, who: c.authorId, text: 'commented', project: mine.get(c.projectId)! }));
-    return [...acts, ...coms].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 12);
+      .map((c) => ({ id: c.id, date: c.date, who: c.authorId, text: 'commented', sub: mine.get(c.projectId)!.name, to: `/projects/${c.projectId}` }));
+    // Your feedback was answered or marked Done.
+    const fb = db.feedback.filter((f) => f.authorId === me.id && f.respondedAt && f.respondedBy !== me.id)
+      .map((f) => ({
+        id: `fb-${f.id}-${f.respondedAt}`, date: f.respondedAt!, who: f.respondedBy ?? '',
+        text: f.status === 'done' ? (f.response ? 'addressed your feedback' : 'marked your feedback as done') : 'replied to your feedback',
+        sub: `On ${f.page}${f.response ? ` · “${f.response.slice(0, 60)}${f.response.length > 60 ? '…' : ''}”` : ''}`, to: '/feedback',
+      }));
+    return [...acts, ...coms, ...fb].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 12);
   }, [db, me]);
   const unread = items.filter((i) => i.date > seen).length;
 
@@ -194,16 +201,16 @@ function Notifications() {
       <PopoverContent align="end" className="w-[22rem] rounded-2xl p-0">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <span className="font-semibold">Notifications</span>
-          <span className="text-muted-foreground text-xs">On projects you’re part of</span>
+          <span className="text-muted-foreground text-xs">Your projects and feedback</span>
         </div>
         <div className="max-h-96 overflow-y-auto">
           {items.length === 0 && <div className="text-muted-foreground p-6 text-center text-sm">You’re all caught up.</div>}
           {items.map((i) => (
-            <Link key={i.id} to={`/projects/${i.project.id}`} className={cn('hover:bg-accent flex gap-3 px-4 py-3', i.date > seen && 'bg-gold/[0.07]')}>
+            <Link key={i.id} to={i.to} className={cn('hover:bg-accent flex gap-3 px-4 py-3', i.date > seen && 'bg-gold/[0.07]')}>
               <PersonAvatar person={person(i.who)} className="size-8" />
               <div className="min-w-0 text-sm">
                 <span className="font-medium">{person(i.who)?.name}</span> <span className="text-muted-foreground">{i.text}</span>
-                <div className="text-muted-foreground truncate text-xs">{i.project.name} · {timeAgo(i.date)}</div>
+                <div className="text-muted-foreground truncate text-xs">{i.sub} · {timeAgo(i.date)}</div>
               </div>
             </Link>
           ))}
@@ -243,6 +250,7 @@ function ProfileMenu() {
       <DropdownMenuContent align="end" className="w-64 rounded-xl">
         <DropdownMenuItem onSelect={() => navigate(`/people/${me.id}`)}>My profile</DropdownMenuItem>
         <DropdownMenuItem onSelect={() => navigate('/mine')}>My projects</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => navigate('/feedback')}>My feedback</DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">Theme</DropdownMenuLabel>
         <div className="grid grid-cols-3 gap-1 px-1 pb-1">

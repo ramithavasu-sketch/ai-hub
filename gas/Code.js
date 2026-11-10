@@ -30,7 +30,7 @@ var SCHEMA = {
   comments: [['id', 's'], ['projectId', 's'], ['authorId', 's'], ['date', 's'], ['body', 's']],
   activity: [['id', 's'], ['projectId', 's'], ['actorId', 's'], ['date', 's'], ['action', 's']],
   feedback: [['id', 's'], ['authorId', 's'], ['date', 's'], ['page', 's'], ['path', 's'], ['rating', 's'], ['message', 's'],
-    ['status', 's'], ['imageUrl', 's']],
+    ['status', 's'], ['imageUrl', 's'], ['response', 's'], ['respondedBy', 's'], ['respondedAt', 's']],
 };
 
 var DEPARTMENTS = [
@@ -64,6 +64,7 @@ function actions_() { return {
   updateProfile: AIHub.updateProfile,
   submitFeedback: AIHub.submitFeedback,
   setFeedbackStatus: AIHub.setFeedbackStatus,
+  respondToFeedback: AIHub.respondToFeedback,
 }; }
 
 function doGet() {

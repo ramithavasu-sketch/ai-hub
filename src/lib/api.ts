@@ -41,6 +41,7 @@ export interface Api {
   /** Store an image for feedback and return its link. */
   attachFeedbackImage(file: File): Promise<string>;
   setFeedbackStatus(id: string, status: FeedbackStatus): Promise<void>;
+  respondToFeedback(id: string, status: FeedbackStatus, response: string): Promise<void>;
   /** Save a file and return a link to it (live: the AI Hub's Google Drive folder). */
   uploadFile(file: File, onProgress?: (fraction: number) => void): Promise<UploadedFile>;
   /** Read a project document and return the form fields it fills. */
@@ -115,6 +116,7 @@ export function demoApi(meId: () => string): Api {
     // No Google Drive in the demo: keep a shrunken copy in this browser instead.
     attachFeedbackImage: (file) => { checkImage(file); return shrinkImage(file, 1000, server.MAX_PHOTO_CHARS); },
     setFeedbackStatus: (id, st) => run((db, m) => server.setFeedbackStatus(db, m, id, st)),
+    respondToFeedback: (id, st, r) => run((db, m) => server.respondToFeedback(db, m, id, { status: st, response: r })),
     // The demo has no Google Drive, so only plain-text documents can be read here.
     uploadFile: async () => { throw new server.Invalid('Uploading files works on the live AI Hub. In this demo, add a link instead.'); },
     readDocument: async (file) => {
@@ -233,6 +235,7 @@ export const liveApi: Api = {
   submitFeedback: (input) => send('submitFeedback', input),
   attachFeedbackImage: async (file) => { checkImage(file); return (await uploadInPieces(file, undefined, 'feedback')).url; },
   setFeedbackStatus: (id, st) => send('setFeedbackStatus', id, st),
+  respondToFeedback: (id, st, r) => send('respondToFeedback', id, { status: st, response: r }),
   uploadFile: (file, onProgress) => uploadInPieces(file, onProgress),
   readDocument: async (file) => {
     checkSize(file, MAX_READ_MB);

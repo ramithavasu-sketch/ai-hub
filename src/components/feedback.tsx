@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState, type ClipboardEvent } from 'react';
-import { ExternalLink, ImagePlus, Loader2, MessageSquareText, Sparkles, ThumbsUp, Wrench, X } from 'lucide-react';
+import { BellRing, CornerDownRight, ExternalLink, ImagePlus, Loader2, MessageSquareReply, MessageSquareText, Sparkles, ThumbsUp, Wrench, X } from 'lucide-react';
 import { MAX_FEEDBACK_IMAGE_MB } from '@/lib/api';
 import { fileSize, useFilePicker } from './uploads';
 import { useHub, useLookup } from '@/lib/store';
 import { match, navigate } from '@/lib/router';
 import { timeAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import type { Db, FeedbackRating, FeedbackStatus } from '@/lib/types';
+import type { Db, Feedback, FeedbackRating, FeedbackStatus } from '@/lib/types';
 import { PersonAvatar } from './hub';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
@@ -36,6 +36,7 @@ export function pageName(path: string, db: Db): string {
   const names: Record<string, string> = {
     '/': 'Home', '/projects': 'Explore projects', '/new': 'Add project', '/people': 'Our contributors',
     '/departments': 'Departments', '/resources': 'Resource library', '/mine': 'My projects', '/admin': 'Admin panel',
+    '/feedback': 'My feedback',
   };
   return names[p] ?? 'AI Hub';
 }
@@ -154,6 +155,7 @@ export function FeedbackTracker() {
   const { person } = useLookup();
   const [status, setStatus] = useState<FeedbackStatus | 'all'>('all');
   const [rating, setRating] = useState<FeedbackRating | 'all'>('all');
+  const [responding, setResponding] = useState<Feedback | null>(null);
 
   const list = useMemo(() => [...db.feedback]
     .filter((f) => (status === 'all' || f.status === status) && (rating === 'all' || f.rating === rating))
@@ -198,11 +200,122 @@ export function FeedbackTracker() {
                   <button onClick={() => navigate(f.path)} className="text-muted-foreground cursor-pointer text-xs hover:underline">on {f.page}</button>
                   {f.message ? <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{f.message}</p> : <p className="text-muted-foreground text-sm italic">No comment added.</p>}
                   {f.imageUrl && <FeedbackImage url={f.imageUrl} />}
+                  {f.response && <Reply f={f} />}
                 </div>
-                <Select value={f.status} onValueChange={(v) => act((api) => api.setFeedbackStatus(f.id, v as FeedbackStatus))}>
-                  <SelectTrigger className="h-8! w-36 shrink-0" aria-label={`Status of feedback from ${who?.name ?? 'someone'}`}><SelectValue /></SelectTrigger>
-                  <SelectContent>{FEEDBACK_STATUSES.map((s) => <SelectItem key={s.k} value={s.k}>{s.label}</SelectItem>)}</SelectContent>
-                </Select>
+                <div className="flex shrink-0 gap-2 sm:flex-col sm:items-end">
+                  <Select value={f.status} onValueChange={(v) => act((api) => api.setFeedbackStatus(f.id, v as FeedbackStatus), v === 'done' ? `Marked Done · ${who?.name ?? 'The sender'} will be notified` : undefined)}>
+                    <SelectTrigger className="h-8! w-36" aria-label={`Status of feedback from ${who?.name ?? 'someone'}`}><SelectValue /></SelectTrigger>
+                    <SelectContent>{FEEDBACK_STATUSES.map((s) => <SelectItem key={s.k} value={s.k}>{s.label}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Button variant="outline" size="sm" className="w-36" onClick={() => setResponding(f)}><MessageSquareReply />{f.response ? 'Edit reply' : 'Reply'}</Button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {responding && <RespondDialog f={responding} onClose={() => setResponding(null)} />}
+    </div>
+  );
+}
+
+/** The admin team's reply under a piece of feedback. */
+function Reply({ f }: { f: Feedback }) {
+  const { person } = useLookup();
+  return (
+    <div className="bg-secondary/60 mt-2 flex gap-2 rounded-xl px-3 py-2 text-sm">
+      <CornerDownRight className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+      <div className="min-w-0">
+        <div className="text-muted-foreground text-xs">
+          Reply from {person(f.respondedBy ?? '')?.name ?? 'the admin team'}{f.respondedAt && ` · ${timeAgo(f.respondedAt)}`}
+        </div>
+        <p className="leading-relaxed whitespace-pre-wrap break-words">{f.response}</p>
+      </div>
+    </div>
+  );
+}
+
+/** Act on feedback: choose a status and write back to the person who sent it. */
+function RespondDialog({ f, onClose }: { f: Feedback; onClose: () => void }) {
+  const { act } = useHub();
+  const { person } = useLookup();
+  const who = person(f.authorId);
+  const first = who?.name.split(' ')[0] ?? 'them';
+  const [status, setStatus] = useState<FeedbackStatus>(f.status === 'new' ? 'done' : f.status);
+  const [response, setResponse] = useState(f.response ?? '');
+  const notifies = (response.trim() && response.trim() !== (f.response ?? '')) || (status === 'done' && f.status !== 'done');
+
+  const save = async () => {
+    if (await act((api) => api.respondToFeedback(f.id, status, response), notifies ? `Saved · ${first} will be notified` : 'Saved')) onClose();
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Act on feedback</DialogTitle>
+          <DialogDescription>From {who?.name ?? 'a former member'} on {f.page} · {timeAgo(f.date)}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <blockquote className="border-l-2 pl-3 text-sm leading-relaxed whitespace-pre-wrap break-words">{f.message || <span className="text-muted-foreground italic">No comment added.</span>}</blockquote>
+          <div className="space-y-1.5">
+            <Label>Status</Label>
+            <div role="radiogroup" aria-label="Status" className="grid grid-cols-3 gap-2">
+              {FEEDBACK_STATUSES.map((s) => (
+                <button key={s.k} type="button" role="radio" aria-checked={status === s.k} onClick={() => setStatus(s.k)}
+                  className={cn('cursor-pointer rounded-xl border px-3 py-2 text-sm', status === s.k ? 'bg-foreground text-background border-foreground' : 'hover:bg-accent')}>{s.label}</button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="fb-reply">Reply to {first} <span className="text-muted-foreground font-normal">(optional)</span></Label>
+            <Textarea id="fb-reply" rows={4} maxLength={2000} value={response} onChange={(e) => setResponse(e.target.value)}
+              placeholder="What did you change, or what happens next?" />
+          </div>
+          <p className={cn('flex items-center gap-1.5 text-xs', notifies ? 'text-foreground' : 'text-muted-foreground')}>
+            <BellRing className="size-3.5" />
+            {notifies ? `${first} will get a notification in the AI Hub.` : `${first} is notified when you reply or mark it Done.`}
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={save}>Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** "My feedback": what you've sent, its status and any reply. */
+export function MyFeedback() {
+  const { db, me } = useHub();
+  const mine = [...db.feedback].filter((f) => f.authorId === me.id).sort((a, b) => b.date.localeCompare(a.date));
+  const label = (s: FeedbackStatus) => FEEDBACK_STATUSES.find((x) => x.k === s)?.label;
+  const tone: Record<FeedbackStatus, string> = { new: 'bg-secondary text-foreground', in_progress: 'bg-warning/15 text-gold-ink', done: 'bg-success/15 text-success' };
+  return (
+    <div className="mx-auto max-w-3xl space-y-6">
+      <div>
+        <div className="eyebrow mb-2">Feedback</div>
+        <h1 className="display text-4xl">My feedback</h1>
+        <p className="text-muted-foreground mt-2">What you’ve sent the admin team, and what they’ve done about it. Use the Feedback button at the top of any page to send more.</p>
+      </div>
+      {mine.length === 0 ? (
+        <div className="text-muted-foreground rounded-2xl border border-dashed p-8 text-center text-sm">You haven’t sent any feedback yet.</div>
+      ) : (
+        <ul className="panel divide-y">
+          {mine.map((f) => {
+            const r = RATINGS.find((x) => x.k === f.rating)!;
+            return (
+              <li key={f.id} id={`feedback-${f.id}`} className="space-y-1 px-5 py-4">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                  <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium', r.tone)}><r.icon className="size-3" />{r.label}</span>
+                  <button onClick={() => navigate(f.path)} className="cursor-pointer font-medium hover:underline">{f.page}</button>
+                  <span className="text-muted-foreground text-xs">{timeAgo(f.date)}</span>
+                  <span className={cn('ml-auto rounded-full px-2.5 py-0.5 text-xs font-medium', tone[f.status])}>{label(f.status)}</span>
+                </div>
+                {f.message ? <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{f.message}</p> : <p className="text-muted-foreground text-sm italic">No comment added.</p>}
+                {f.imageUrl && <FeedbackImage url={f.imageUrl} />}
+                {f.response && <Reply f={f} />}
               </li>
             );
           })}

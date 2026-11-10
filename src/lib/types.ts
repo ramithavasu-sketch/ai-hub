@@ -128,6 +128,11 @@ export interface Feedback {
   status: FeedbackStatus;
   /** Optional image: a Google Drive link (live) or a small data URL (demo). */
   imageUrl?: string;
+  /** What the admin team did about it, shown to the sender. */
+  response?: string;
+  respondedBy?: string;
+  /** Set whenever an admin replies or marks it Done; the sender is notified. */
+  respondedAt?: string;
 }
 
 export interface Db {

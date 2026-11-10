@@ -1,11 +1,12 @@
 import { useRef, useState, type ChangeEvent } from 'react';
-import { Camera, CircleCheck, FileText, FileUp, Loader2, Paperclip, Trash2, Undo2, X } from 'lucide-react';
+import { Camera, CircleCheck, Crop, FileText, FileUp, Loader2, Paperclip, Trash2, Undo2, X } from 'lucide-react';
 import { useHub } from '@/lib/store';
 import * as server from '@/lib/server';
 import { RESOURCE_TYPES } from '@/lib/meta';
 import { MAX_READ_MB, MAX_UPLOAD_MB } from '@/lib/api';
 import type { Person, ResourceType } from '@/lib/types';
 import { PersonAvatar } from '@/components/hub';
+import { PhotoEditor } from './photo-editor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -162,46 +163,24 @@ export function Attachments({ value, onChange, disabled }: { value: Attachment[]
 
 // ---------- profile picture ----------
 
-const PHOTO_PX = 192;
+const MAX_PHOTO_MB = 15;
 
-/** Shrink a picked image to a small square JPEG (centre-cropped), about 10 KB, ready to save on the profile. */
-export async function photoFromFile(file: File): Promise<string> {
-  if (!file.type.startsWith('image/')) throw new Error('Choose a picture (JPG, PNG or WebP).');
-  if (file.size > 15 * 1024 * 1024) throw new Error('That picture is over 15 MB. Choose a smaller one.');
-  const url = URL.createObjectURL(file);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const i = new Image();
-      i.onload = () => resolve(i);
-      i.onerror = () => reject(new Error('We couldn’t open that picture. Try a JPG or PNG.'));
-      i.src = url;
-    });
-    const side = Math.min(img.naturalWidth, img.naturalHeight);
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = PHOTO_PX;
-    const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = '#fff'; // transparent PNGs get a white background
-    ctx.fillRect(0, 0, PHOTO_PX, PHOTO_PX);
-    ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, PHOTO_PX, PHOTO_PX);
-    for (const q of [0.85, 0.7, 0.5]) {
-      const data = canvas.toDataURL('image/jpeg', q);
-      if (data.length <= server.MAX_PHOTO_CHARS) return data;
-    }
-    throw new Error('That picture couldn’t be used. Try another photo.');
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-/** Avatar preview with Upload / Change and Remove buttons, for the profile form. */
+/** Avatar preview with Upload / Change / Adjust and Remove, plus the framing editor, for the profile form. */
 export function PhotoPicker({ name, value, onChange }: { name: string; value: string; onChange: (v: string) => void }) {
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [open, input] = useFilePicker(async ([file]) => {
+  const [source, setSource] = useState<File | null>(null); // the original picked this time, so it can be re-framed
+  const [editing, setEditing] = useState(false);
+  const [open, input] = useFilePicker(([file]) => {
     setError('');
-    setBusy(true);
-    try { onChange(await photoFromFile(file)); } catch (e) { setError(e instanceof Error ? e.message : 'We couldn’t use that picture.'); } finally { setBusy(false); }
+    if (!/^image\/(jpeg|png|webp|gif)$/.test(file.type)) return setError('Choose a picture (JPG, PNG, WebP or GIF).');
+    if (file.size > MAX_PHOTO_MB * 1024 * 1024) return setError(`That picture is over ${MAX_PHOTO_MB} MB. Choose a smaller one.`);
+    setSource(file);
+    setEditing(true);
   }, { accept: 'image/jpeg,image/png,image/webp,image/gif' });
+
+  if (editing && source) {
+    return <PhotoEditor file={source} onApply={(photo) => { onChange(photo); setEditing(false); }} onCancel={() => setEditing(false)} />;
+  }
 
   return (
     <div className="flex items-center gap-4">
@@ -209,12 +188,12 @@ export function PhotoPicker({ name, value, onChange }: { name: string; value: st
       <PersonAvatar person={{ name: name || '?', photo: value } as Person} className="size-16 text-lg ring-0" />
       <div className="min-w-0 space-y-1.5">
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={open} disabled={busy}>
-            {busy ? <Loader2 className="animate-spin" /> : <Camera />}{value ? 'Change photo' : 'Upload photo'}
-          </Button>
-          {value && <Button type="button" variant="ghost" size="sm" onClick={() => { setError(''); onChange(''); }} disabled={busy}><Trash2 />Remove</Button>}
+          <Button type="button" variant="outline" size="sm" onClick={open}><Camera />{value ? 'Change photo' : 'Upload photo'}</Button>
+          {/* Re-framing needs the original picture, so it's offered for a photo picked in this visit. */}
+          {value && source && <Button type="button" variant="outline" size="sm" onClick={() => setEditing(true)}><Crop />Adjust</Button>}
+          {value && <Button type="button" variant="ghost" size="sm" onClick={() => { setError(''); setSource(null); onChange(''); }}><Trash2 />Remove</Button>}
         </div>
-        <p className="text-muted-foreground text-xs">Optional. A square photo works best; we crop it to a circle.</p>
+        <p className="text-muted-foreground text-xs">Optional. After choosing a photo you can zoom, move and turn it to frame your face.</p>
         {error && <p role="alert" className="text-destructive text-xs">{error}</p>}
       </div>
     </div>

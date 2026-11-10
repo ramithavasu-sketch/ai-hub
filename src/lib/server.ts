@@ -382,11 +382,24 @@ export function submitFeedback(db: Db, actor: Person, input: { page: string; pat
 }
 
 export function setFeedbackStatus(db: Db, actor: Person, id: string, status: FeedbackStatus) {
-  must(isAdmin(actor), 'Only admins can track feedback.');
-  if (!['new', 'in_progress', 'done'].includes(status)) throw new Invalid('Choose a status.');
+  respondToFeedback(db, actor, id, { status });
+}
+
+/**
+ * An admin acts on feedback: sets its status and, optionally, replies to the sender.
+ * A new reply, or marking it Done, notifies the sender.
+ */
+export function respondToFeedback(db: Db, actor: Person, id: string, input: { status: FeedbackStatus; response?: string }) {
+  must(isAdmin(actor), 'Only admins can act on feedback.');
+  if (!['new', 'in_progress', 'done'].includes(input.status)) throw new Invalid('Choose a status.');
   const f = db.feedback.find((x) => x.id === id);
   if (!f) throw new Invalid('That feedback was not found.');
-  f.status = status;
+  const response = input.response === undefined ? f.response ?? '' : clean(input.response, 2000);
+  const replied = response !== (f.response ?? '') && !!response;
+  const finished = input.status === 'done' && f.status !== 'done';
+  f.status = input.status;
+  f.response = response;
+  if (replied || finished) { f.respondedAt = now(); f.respondedBy = actor.id; }
   save(db);
 }
 
