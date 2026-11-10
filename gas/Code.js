@@ -183,6 +183,21 @@ function readDocument(file) {
   return AIHub.fieldsFromText(text);
 }
 
+/**
+ * Older one-step upload, kept so AI Hub tabs opened before the 50 MB update still work
+ * (their page calls this). New pages use startUpload + uploadChunk.
+ */
+function uploadFile(file) {
+  uploader_();
+  var saved = filesFolder_().createFile(blobFrom_(file));
+  try {
+    saved.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.VIEW);
+  } catch (e) {
+    // Some Workspace settings block link sharing; the file is still saved and the owner can share it.
+  }
+  return { name: saved.getName(), url: saved.getUrl(), mimeType: saved.getMimeType() };
+}
+
 /** Only active contributors and admins may upload. Read-only, so no lock is needed. */
 function uploader_() {
   var email = String(Session.getActiveUser().getEmail() || '').toLowerCase();

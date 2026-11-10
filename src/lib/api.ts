@@ -101,7 +101,11 @@ function runServer<T>(pick: (fns: ServerFns) => void): Promise<T> {
   return new Promise((resolve, reject) =>
     pick(google.script.run
       .withSuccessHandler((r) => resolve(r as T))
-      .withFailureHandler((e) => reject(new Error(String(e?.message || 'Something went wrong. Please try again.').replace(/^(Exception|Error):\s*/, ''))))),
+      .withFailureHandler((e) => {
+        const message = String(e?.message || 'Something went wrong. Please try again.').replace(/^(Exception|Error):\s*/, '');
+        // The page is older than the server (the AI Hub was updated while this tab was open).
+        reject(new Error(/script function not found/i.test(message) ? 'The AI Hub was just updated. Refresh the page and try again.' : message));
+      })),
   );
 }
 
