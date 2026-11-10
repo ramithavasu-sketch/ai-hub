@@ -6,7 +6,7 @@ import * as server from '@/lib/server';
 import { STATUSES } from '@/lib/meta';
 import { Link, navigate } from '@/lib/router';
 import { splitList } from '@/lib/format';
-import type { Status, Visibility } from '@/lib/types';
+import type { Resource, Status, Visibility } from '@/lib/types';
 import { EmptyState, PersonAvatar } from '@/components/hub';
 import { Attachments, ImportDocument, toAttachment, type Attachment } from '@/components/uploads';
 import { Button } from '@/components/ui/button';
@@ -89,6 +89,9 @@ function PeoplePicker({ value, onChange, exclude, placeholder }: { value: string
 export default function ProjectForm({ id }: { id?: string }) {
   const { db, me, act, live } = useHub();
   const existing = id ? db.projects.find((p) => p.id === id) : undefined;
+  // The three main links live as resources; when editing, show the first of each kind.
+  const linkRes = useRef(Object.fromEntries((['confluence', 'prototype', 'live'] as const).map((t) =>
+    [t, id ? db.resources.find((r) => r.projectId === id && r.type === t) : undefined])) as Record<'confluence' | 'prototype' | 'live', Resource | undefined>);
 
   const [f, setF] = useState(() => ({
     name: existing?.name ?? '',
@@ -106,7 +109,7 @@ export default function ProjectForm({ id }: { id?: string }) {
     notes: existing?.notes ?? '',
     access: (existing?.visibility === 'restricted' ? 'restricted' : 'published') as Exclude<Visibility, 'draft'>,
     allowedIds: existing?.allowedIds ?? [],
-    confluence: '', prototype: '', live: '',
+    confluence: linkRes.current.confluence?.url ?? '', prototype: linkRes.current.prototype?.url ?? '', live: linkRes.current.live?.url ?? '',
   }));
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
 
@@ -176,8 +179,13 @@ export default function ProjectForm({ id }: { id?: string }) {
       }, savedId.current);
       savedId.current = saved;
       if (!linksAdded.current)
-        for (const [type, url, title] of links)
-          if (url.trim()) await api.saveResource(saved, { type, url, title, description: '' });
+        for (const [type, url, title] of links) {
+          const u = url.trim();
+          const r = linkRes.current[type];
+          if (r && !u) await api.deleteResource(saved, r.id);
+          else if (r && u !== r.url) await api.saveResource(saved, { type, url: u, title: r.title, description: r.description }, r.id);
+          else if (!r && u) await api.saveResource(saved, { type, url: u, title, description: '' });
+        }
       linksAdded.current = true;
       for (const a of files) {
         if (a.added) continue;
@@ -249,14 +257,12 @@ export default function ProjectForm({ id }: { id?: string }) {
             <Field label="AI tools / technologies" hint="Comma separated, e.g. Claude, Whisper, React"><Input value={f.technologies} onChange={(e) => set('technologies', e.target.value)} /></Field>
             <Field label="Keywords" hint="Comma separated, helps people find it"><Input value={f.tags} onChange={(e) => set('tags', e.target.value)} /></Field>
           </div>
-          {!id && (
-            <div className="grid gap-5 sm:grid-cols-3">
-              <Field label="Confluence link"><Input value={f.confluence} onChange={(e) => set('confluence', e.target.value)} placeholder="https://" /></Field>
-              <Field label="Prototype link"><Input value={f.prototype} onChange={(e) => set('prototype', e.target.value)} placeholder="https://" /></Field>
-              <Field label="Project link"><Input value={f.live} onChange={(e) => set('live', e.target.value)} placeholder="https://" /></Field>
-            </div>
-          )}
-          {!id && <p className="text-muted-foreground -mt-2 text-xs">More links — Figma, GitHub, demos, screenshots, meeting notes — can be added from the project’s Resources tab.</p>}
+          <div className="grid gap-5 sm:grid-cols-3">
+            <Field label="Confluence link"><Input value={f.confluence} onChange={(e) => set('confluence', e.target.value)} placeholder="https://" /></Field>
+            <Field label="Prototype link"><Input value={f.prototype} onChange={(e) => set('prototype', e.target.value)} placeholder="https://" /></Field>
+            <Field label="Project link"><Input value={f.live} onChange={(e) => set('live', e.target.value)} placeholder="https://" /></Field>
+          </div>
+          <p className="text-muted-foreground -mt-2 text-xs">More links — Figma, GitHub, demos, screenshots, meeting notes — can be added from the project’s Resources tab.</p>
           {live && <Attachments value={files} onChange={setFiles} disabled={saving} />}
           {id && live && <p className="text-muted-foreground -mt-2 text-xs">Files already on the project can be renamed or removed from its Resources tab.</p>}
           <Field label="Additional notes"><Textarea rows={2} value={f.notes} onChange={(e) => set('notes', e.target.value)} /></Field>
