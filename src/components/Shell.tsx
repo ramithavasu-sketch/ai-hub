@@ -8,6 +8,7 @@ import { useHub, useLookup } from '@/lib/store';
 import { canView, isAdmin, isMember, visibleProjects } from '@/lib/server';
 import { timeAgo } from '@/lib/format';
 import { PersonAvatar, ProjectGlyph } from './hub';
+import { FeedbackButton } from './feedback';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -315,6 +316,7 @@ export function Shell({ path, children }: { path: string; children: ReactNode })
             <Link to="/new" className="hidden items-center gap-1.5 rounded-full bg-foreground px-4 py-2 text-sm font-medium whitespace-nowrap text-background transition hover:opacity-90 md:inline-flex lg:hidden xl:inline-flex">
               <Plus className="size-4" /> Add Project
             </Link>
+            <FeedbackButton path={path} />
             <Notifications />
             <ProfileMenu />
           </div>

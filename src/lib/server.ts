@@ -4,7 +4,7 @@
  * backend (database row-level security) later. Data lives in this browser only.
  */
 import { buildSeed, DB_VERSION } from './seed';
-import type { AccessRole, Db, Person, Project, Resource, Status, StageKey, Visibility } from './types';
+import type { AccessRole, Db, FeedbackRating, FeedbackStatus, Person, Project, Resource, Status, StageKey, Visibility } from './types';
 import { stageIndex, STAGES } from './meta';
 
 const KEY = 'aihub.db';
@@ -353,6 +353,35 @@ export function updateProfile(db: Db, actor: Person, input: { name?: string; tit
     if (photo && (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(photo) || photo.length > MAX_PHOTO_CHARS)) throw new Invalid('That picture couldn’t be used. Try a JPG or PNG photo.');
     me.photo = photo;
   }
+  save(db);
+}
+
+// ---------- feedback ----------
+
+export const FEEDBACK_PER_DAY = 20;
+
+/** Anyone signed in may send feedback about the page they're on. */
+export function submitFeedback(db: Db, actor: Person, input: { page: string; path: string; rating: FeedbackRating; message: string }) {
+  if (input.rating !== 'works_well' && input.rating !== 'could_be_better') throw new Invalid('Choose “Works well” or “Could be better”.');
+  const message = clean(input.message, 2000);
+  if (input.rating === 'could_be_better' && !message) throw new Invalid('Tell us what could be better.');
+  const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
+  if (db.feedback.filter((f) => f.authorId === actor.id && f.date > dayAgo).length >= FEEDBACK_PER_DAY)
+    throw new Invalid('Thanks for all the feedback! You can send more tomorrow.');
+  db.feedback.push({
+    id: uid('f'), authorId: actor.id, date: now(), page: clean(input.page, 120) || 'AI Hub',
+    path: /^\/[\w\-/?=&%.]*$/.test(String(input.path)) ? clean(input.path, 200) : '/',
+    rating: input.rating, message, status: 'new',
+  });
+  save(db);
+}
+
+export function setFeedbackStatus(db: Db, actor: Person, id: string, status: FeedbackStatus) {
+  must(isAdmin(actor), 'Only admins can track feedback.');
+  if (!['new', 'in_progress', 'done'].includes(status)) throw new Invalid('Choose a status.');
+  const f = db.feedback.find((x) => x.id === id);
+  if (!f) throw new Invalid('That feedback was not found.');
+  f.status = status;
   save(db);
 }
 

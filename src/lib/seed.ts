@@ -1,8 +1,8 @@
-import type { Db, Project, Resource, Update, Comment, Activity, Person, Department } from './types';
+import type { Db, Project, Resource, Update, Comment, Activity, Person, Department, Feedback } from './types';
 
 // All names and data below are made up for the demo.
 
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 
 const DAY = 86_400_000;
 const ago = (days: number, hour = 10) => {
@@ -349,9 +349,15 @@ const activity: Activity[] = [
   ...projects.map((x) => ({ id: id('a'), projectId: x.id, actorId: x.ownerId, date: x.createdAt, action: 'created the project' })),
 ];
 
+const feedback: Feedback[] = [
+  { id: id('f'), authorId: 'u-ravi', date: ago(3, 11), page: 'Explore projects', path: '/projects', rating: 'works_well', message: 'The filters make it quick to find what other teams are building.', status: 'new' },
+  { id: id('f'), authorId: 'u-omar', date: ago(2, 15), page: 'Resource library', path: '/resources', rating: 'could_be_better', message: 'Would like to sort resources by newest first.', status: 'in_progress' },
+  { id: id('f'), authorId: 'u-nina', date: ago(1, 10), page: 'Home', path: '/', rating: 'could_be_better', message: 'A short “how to add a project” guide on the home page would help new people.', status: 'new' },
+];
+
 export function buildSeed(): Db {
   return {
     version: DB_VERSION,
-    departments, people, projects, resources, updates, comments, activity,
+    departments, people, projects, resources, updates, comments, activity, feedback,
   };
 }

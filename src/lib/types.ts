@@ -111,6 +111,23 @@ export interface Activity {
   action: string;
 }
 
+export type FeedbackRating = 'works_well' | 'could_be_better';
+export type FeedbackStatus = 'new' | 'in_progress' | 'done';
+
+/** Feedback someone sent about a page of the AI Hub. Admins see all of it; others only their own. */
+export interface Feedback {
+  id: string;
+  authorId: string;
+  date: string;
+  /** Readable page name, e.g. "Project: Call Evaluator". */
+  page: string;
+  /** In-app route, so admins can open the same page. */
+  path: string;
+  rating: FeedbackRating;
+  message: string;
+  status: FeedbackStatus;
+}
+
 export interface Db {
   version: number;
   departments: Department[];
@@ -120,4 +137,5 @@ export interface Db {
   updates: Update[];
   comments: Comment[];
   activity: Activity[];
+  feedback: Feedback[];
 }

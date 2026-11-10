@@ -5,7 +5,7 @@
  * shared Google Sheet.
  */
 import * as server from './server';
-import type { AccessRole, Db, Person, StageKey, Status } from './types';
+import type { AccessRole, Db, FeedbackRating, FeedbackStatus, Person, StageKey, Status } from './types';
 
 export const LIVE = import.meta.env.VITE_BACKEND === 'gas';
 export const MAX_UPLOAD_MB = 50; // attachments
@@ -16,6 +16,8 @@ export interface UploadedFile { name: string; url: string; mimeType: string }
 export type DocReading = ReturnType<typeof server.fieldsFromText>;
 
 export interface ProfileInput { name?: string; title?: string; departmentId?: string; bio?: string; interests?: string[]; photo?: string }
+
+export interface FeedbackInput { page: string; path: string; rating: FeedbackRating; message: string }
 
 export interface Api {
   load(): Promise<Db>;
@@ -34,6 +36,8 @@ export interface Api {
   setActive(personId: string, active: boolean): Promise<void>;
   addDepartment(name: string, description: string): Promise<void>;
   updateProfile(input: ProfileInput): Promise<void>;
+  submitFeedback(input: FeedbackInput): Promise<void>;
+  setFeedbackStatus(id: string, status: FeedbackStatus): Promise<void>;
   /** Save a file and return a link to it (live: the AI Hub's Google Drive folder). */
   uploadFile(file: File, onProgress?: (fraction: number) => void): Promise<UploadedFile>;
   /** Read a project document and return the form fields it fills. */
@@ -69,6 +73,8 @@ export function demoApi(meId: () => string): Api {
     setActive: (id, a) => run((db, m) => server.setActive(db, m, id, a)),
     addDepartment: (n, d) => run((db, m) => server.addDepartment(db, m, n, d)),
     updateProfile: (input) => run((db, m) => server.updateProfile(db, m, input)),
+    submitFeedback: (input) => run((db, m) => server.submitFeedback(db, m, input)),
+    setFeedbackStatus: (id, st) => run((db, m) => server.setFeedbackStatus(db, m, id, st)),
     // The demo has no Google Drive, so only plain-text documents can be read here.
     uploadFile: async () => { throw new server.Invalid('Uploading files works on the live AI Hub. In this demo, add a link instead.'); },
     readDocument: async (file) => {
@@ -184,6 +190,8 @@ export const liveApi: Api = {
   setActive: (id, a) => send('setActive', id, a),
   addDepartment: (n, d) => send('addDepartment', n, d),
   updateProfile: (input) => send('updateProfile', input),
+  submitFeedback: (input) => send('submitFeedback', input),
+  setFeedbackStatus: (id, st) => send('setFeedbackStatus', id, st),
   uploadFile: uploadInPieces,
   readDocument: async (file) => {
     checkSize(file, MAX_READ_MB);

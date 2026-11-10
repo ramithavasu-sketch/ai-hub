@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { askConfirm } from '@/components/confirm';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { FeedbackTracker } from '@/components/feedback';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 // ---------- Departments ----------
@@ -169,6 +170,7 @@ export function Admin() {
     return <EmptyState icon={ShieldCheck} title="Admins only">Switch to an admin in the profile menu to try the Admin Panel in development mode.</EmptyState>;
 
   const stale = db.projects.filter((p) => p.visibility !== 'draft' && !['completed', 'archived'].includes(p.status) && Date.now() - +new Date(p.updatedAt) > 30 * 86_400_000);
+  const newFeedback = db.feedback.filter((f) => f.status === 'new').length;
   const roles: { k: AccessRole; label: string }[] = [{ k: 'admin', label: 'Admin' }, { k: 'contributor', label: 'Contributor' }, { k: 'viewer', label: 'Viewer' }];
 
   return (
@@ -179,6 +181,9 @@ export function Admin() {
           <TabsTrigger value="projects">Projects</TabsTrigger>
           <TabsTrigger value="people">People & access</TabsTrigger>
           <TabsTrigger value="departments">Departments</TabsTrigger>
+          <TabsTrigger value="feedback">
+            Feedback{newFeedback > 0 && <span className="bg-gold rounded-full px-1.5 text-[11px] font-bold text-[#111]">{newFeedback}</span>}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="projects" className="space-y-6">
@@ -264,6 +269,8 @@ export function Admin() {
             <Button type="submit" className="w-full" disabled={!deptName.trim()}><Plus />Add department</Button>
           </form>
         </TabsContent>
+
+        <TabsContent value="feedback"><FeedbackTracker /></TabsContent>
       </Tabs>
 
       {!live && (

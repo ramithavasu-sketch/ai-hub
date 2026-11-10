@@ -28,6 +28,8 @@ var SCHEMA = {
   updates: [['id', 's'], ['projectId', 's'], ['authorId', 's'], ['date', 's'], ['title', 's'], ['body', 's']],
   comments: [['id', 's'], ['projectId', 's'], ['authorId', 's'], ['date', 's'], ['body', 's']],
   activity: [['id', 's'], ['projectId', 's'], ['actorId', 's'], ['date', 's'], ['action', 's']],
+  feedback: [['id', 's'], ['authorId', 's'], ['date', 's'], ['page', 's'], ['path', 's'], ['rating', 's'], ['message', 's'],
+    ['status', 's']],
 };
 
 var DEPARTMENTS = [
@@ -59,6 +61,8 @@ function actions_() { return {
   setActive: AIHub.setActive,
   addDepartment: AIHub.addDepartment,
   updateProfile: AIHub.updateProfile,
+  submitFeedback: AIHub.submitFeedback,
+  setFeedbackStatus: AIHub.setFeedbackStatus,
 }; }
 
 function doGet() {
@@ -268,6 +272,8 @@ function visibleData_(db, me) {
     updates: mine(db.updates),
     comments: mine(db.comments),
     activity: mine(db.activity),
+    // Admins track all feedback; everyone else only sees what they sent.
+    feedback: AIHub.isAdmin(me) ? db.feedback : db.feedback.filter(function (f) { return f.authorId === me.id; }),
   };
 }
 
@@ -304,7 +310,7 @@ function readDb_(ss) {
   var db = { version: 0 };
   Object.keys(SCHEMA).forEach(function (table) {
     var cols = SCHEMA[table];
-    var sheet = ss.getSheetByName(table);
+    var sheet = sheetFor_(ss, table);
     var last = sheet.getLastRow();
     var values = last > 1 ? sheet.getRange(2, 1, last - 1, cols.length).getDisplayValues() : [];
     db[table] = values.filter(function (row) { return row[0]; }).map(function (row) {
@@ -314,6 +320,16 @@ function readDb_(ss) {
     });
   });
   return db;
+}
+
+/** A tab added in a later version (like feedback) is created, with headings, the first time it's needed. */
+function sheetFor_(ss, table) {
+  var sheet = ss.getSheetByName(table);
+  if (sheet) return sheet;
+  sheet = ss.insertSheet(table);
+  sheet.getRange(1, 1, 1, SCHEMA[table].length).setValues([SCHEMA[table].map(function (c) { return c[0]; })]).setFontWeight('bold');
+  sheet.setFrozenRows(1);
+  return sheet;
 }
 
 function fromCell_(v, kind) {
@@ -348,7 +364,7 @@ function writeChanges_(ss, db, before) {
 /** Rewrite a tab's rows. Cells are stored as plain text so Sheets never reformats dates or IDs. */
 function writeTable_(ss, table, rows) {
   var cols = SCHEMA[table];
-  var sheet = ss.getSheetByName(table);
+  var sheet = sheetFor_(ss, table);
   var last = sheet.getLastRow();
   // Columns added in later versions (like people.photo) get their heading on the first save.
   if (sheet.getLastColumn() < cols.length) sheet.getRange(1, 1, 1, cols.length).setValues([cols.map(function (c) { return c[0]; })]).setFontWeight('bold');
