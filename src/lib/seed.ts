@@ -20,6 +20,7 @@ const departments: Department[] = [
   { id: 'd-sales', name: 'Sales', description: 'Pipeline, partnerships and onboarding', hue: 340 },
   { id: 'd-people', name: 'People & Culture', description: 'Hiring, learning and wellbeing', hue: 48 },
   { id: 'd-ops', name: 'Finance & Operations', description: 'Billing, planning and process', hue: 195 },
+  { id: 'd-bizops', name: 'Business Operations', description: 'Planning, process improvement and day-to-day business support', hue: 300 },
 ];
 
 const p = (id: string, name: string, title: string, departmentId: string, accessRole: Person['accessRole'], bio: string, interests: string[]): Person => ({

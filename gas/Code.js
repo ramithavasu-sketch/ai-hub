@@ -42,6 +42,7 @@ var DEPARTMENTS = [
   ['d-sales', 'Sales', 'Pipeline, partnerships and onboarding', 340],
   ['d-people', 'People & Culture', 'Hiring, learning and wellbeing', 48],
   ['d-ops', 'Finance & Operations', 'Billing, planning and process', 195],
+  ['d-bizops', 'Business Operations', 'Planning, process improvement and day-to-day business support', 300],
 ];
 
 // Actions the page may call, mapped to the rules. Each gets (db, me, ...args).
