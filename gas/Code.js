@@ -85,6 +85,7 @@ function api(name, args) {
     var db = readDb_(store);
     var before = snapshot_(db);
     addMissingDepartments_(db);
+    fillProfileDefaults_(db);
     var me = currentPerson_(db);
     var result = null;
     if (me.active && name !== 'load') result = actions[name].apply(null, [db, me].concat(args || [])) || null;
@@ -314,6 +315,23 @@ function addMissingDepartments_(db) {
   DEPARTMENTS.forEach(function (d) {
     var known = db.departments.some(function (x) { return x.id === d[0] || x.name.toLowerCase() === d[1].toLowerCase(); });
     if (!known) db.departments.push({ id: d[0], name: d[1], description: d[2], hue: d[3] });
+  });
+}
+
+/**
+ * Profiles an admin asked to have set up for someone. Only fills fields that are still
+ * empty, so the person can change them afterwards from Edit profile.
+ */
+var PROFILE_DEFAULTS = [
+  { id: 'u-34d8a61c', title: 'Head of Customer Experience and Operations', departmentId: 'd-bizops' },
+];
+
+function fillProfileDefaults_(db) {
+  PROFILE_DEFAULTS.forEach(function (d) {
+    var p = db.people.filter(function (x) { return x.id === d.id; })[0];
+    if (!p) return;
+    if (!p.title) p.title = d.title;
+    if (!p.departmentId && db.departments.some(function (x) { return x.id === d.departmentId; })) p.departmentId = d.departmentId;
   });
 }
 
